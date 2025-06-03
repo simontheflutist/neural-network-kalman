@@ -183,20 +183,20 @@ class ProbitLinearNetwork(equinox.Module):
             x = layer(x)
         return x
 
-    @jax.jit
-    def propagate_mean_cov(self, μ, Σ):
-        for layer in self.layers:
-            μ, Σ = layer._propagate_mean(μ, Σ), layer._propagate_cov(μ, Σ)
-        return μ, Σ
-
-    @jax.jit
-    def propagate_mean_cov_lin(self, μ, Σ):
-        for layer in self.layers:
-            μ, Σ = layer._propagate_mean_lin(μ, Σ), layer._propagate_cov_lin(μ, Σ)
-        return μ, Σ
-
-    def propagate_mean_cov_unscented(self, μ, Σ):
-        return unscented_transform(self.__call__, μ, Σ)
+    @equinox.filter_jit
+    def propagate_mean_cov(self, μ, Σ, method="analytic"):
+        if method == "analytic":
+            for layer in self.layers:
+                μ, Σ = layer._propagate_mean(μ, Σ), layer._propagate_cov(μ, Σ)
+            return μ, Σ
+        elif method == "linear":
+            for layer in self.layers:
+                μ, Σ = layer._propagate_mean_lin(μ, Σ), layer._propagate_cov_lin(μ, Σ)
+            return μ, Σ
+        elif method == "unscented":
+            return unscented_transform(self.__call__, μ, Σ)
+        else:
+            raise ValueError(f"propagate_mean_cov: {method} is not a valid method")
 
     def augment_with_identity(self):
         """Returns the network that computes (x, f(x)) where f(x) is this network"""
