@@ -178,7 +178,8 @@ class ProbitLinearNetwork(equinox.Module):
         return self.layers[key]
 
     @jax.jit
-    def __call__(self, x):
+    def __call__(self, *x):
+        x = jnp.concatenate(x)
         for layer in self.layers:
             x = layer(x)
         return x
@@ -197,6 +198,12 @@ class ProbitLinearNetwork(equinox.Module):
             return unscented_transform(self.__call__, μ, Σ)
         else:
             raise ValueError(f"propagate_mean_cov: {method} is not a valid method")
+
+    @equinox.filter_jit
+    def propagate_mean_cov_block(self, means, covariances, method="analytic"):
+        μ = jnp.concatenate(means)
+        Σ = jax.scipy.linalg.block_diag(*covariances)
+        return self.propagate_mean_cov(μ, Σ, method)
 
     def augment_with_identity(self):
         """Returns the network that computes (x, f(x)) where f(x) is this network"""

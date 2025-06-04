@@ -30,11 +30,7 @@ def unscented_transform(f, mu, Sigma, alpha=1e-3, beta=2, kappa=0):
     Wc[0] = Wm[0] + (1 - alpha**2 + beta)
 
     # Cholesky decomposition of (n + lambda) * Sigma
-    try:
-        sqrt_matrix = jnp.linalg.cholesky((n + lambda_) * Sigma)
-    except jnp.linalg.LinAlgError:
-        # Fallback for numerical issues
-        sqrt_matrix = jnp.linalg.cholesky((n + lambda_) * (Sigma + 1e-8 * jnp.eye(n)))
+    sqrt_matrix = jnp.linalg.cholesky((n + lambda_) * (Sigma + 1e-3 * jnp.eye(n)))
 
     # Generate sigma points
     sigma_points = [mu]
