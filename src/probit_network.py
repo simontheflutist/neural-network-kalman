@@ -86,8 +86,20 @@ class ProbitLinear(equinox.Module):
             keys = jax.random.split(key, 2)
             A = A.build(keys[0], (out_size, in_size))
             b = b.build(keys[1], out_size)
-        C = jax.lax.stop_gradient(jnp.zeros((out_size, in_size)))
-        d = jax.lax.stop_gradient(jnp.zeros(out_size))
+        # int type stops gradient
+        C = jnp.zeros((out_size, in_size), dtype=int)
+        d = jnp.zeros(out_size, dtype=int)
+        return ProbitLinear(in_size, out_size, A=A, b=b, C=C, d=d)
+
+    @classmethod
+    def create_residual(self, in_size, out_size, key=None, A=None, b=None):
+        if key is not None:
+            keys = jax.random.split(key, 2)
+            A = A.build(keys[0], (out_size, in_size))
+            b = b.build(keys[1], out_size)
+        # int type stops gradient
+        C = jnp.eye(out_size, dtype=int)
+        d = jnp.zeros(out_size, dtype=int)
         return ProbitLinear(in_size, out_size, A=A, b=b, C=C, d=d)
 
     @classmethod
@@ -96,8 +108,8 @@ class ProbitLinear(equinox.Module):
             keys = jax.random.split(key, 2)
             C = C.build(keys[0], (out_size, in_size))
             d = d.build(keys[1], out_size)
-        A = jax.lax.stop_gradient(jnp.zeros((out_size, in_size)))
-        b = jax.lax.stop_gradient(jnp.zeros(out_size))
+        A = jnp.zeros((out_size, in_size), dtype=int)
+        b = jnp.zeros(out_size, dtype=int)
         return ProbitLinear(in_size, out_size, A=A, b=b, C=C, d=d)
 
     @jax.jit
