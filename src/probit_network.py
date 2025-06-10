@@ -2,13 +2,49 @@ import typing
 
 import equinox
 import jax
+import numpy as np
 from jax import numpy as jnp
 from jax.scipy.stats.norm import cdf as Φ
 from jax.scipy.stats.norm import pdf as ϕ
 
-from binorm import binorm as Φ_2
 from random_matrix import RandomMatrixFactory, ZeroMatrix
 from unscented import unscented_transform
+
+
+def gauss_legendre_on_0_x(n, x):
+    """
+    Generate Gauss-Legendre quadrature nodes and weights for the interval [0, x].
+
+    Parameters:
+    - n: int, number of quadrature points
+    - x: float, right endpoint of the interval [0, x]
+
+    Returns:
+    - nodes: ndarray, transformed quadrature nodes in [0, x]
+    - weights: ndarray, transformed quadrature weights
+    """
+    # Get nodes and weights for [-1, 1]
+    nodes, weights = np.polynomial.legendre.leggauss(n)
+
+    # Affine transformation from [-1, 1] to [0, x]
+    nodes_transformed = 0.5 * (nodes + 1) * x
+    weights_transformed = 0.5 * x * weights
+
+    return nodes_transformed, weights_transformed
+
+
+def dΦ_2__dρ(ρ, h, k):
+    numerator = jnp.exp(-(h**2 - 2 * ρ * h * k + k**2) / (2 * (1 - ρ**2)))
+    denominator = 2 * jnp.pi * jnp.sqrt(1 - ρ**2)
+    return numerator / denominator
+
+
+@equinox.filter_jit
+def Φ_2_increment_quad(h, k, ρ, num_points=20):
+    """https://www.tandfonline.com/doi/epdf/10.1080/00949659008811236"""
+    nodes, weights = gauss_legendre_on_0_x(num_points, ρ)
+    integrand_values = jax.vmap(dΦ_2__dρ, in_axes=(0, None, None))(nodes, h, k)
+    return weights @ integrand_values
 
 
 def σ(x):
@@ -26,7 +62,7 @@ def _K(μ, Σ, a_1, b_1, c_1, a_2, b_2, c_2):
     σ_2 = (1 + a_2 @ Σ @ a_2) ** 0.5
     ρ = (a_1 @ Σ @ a_2) / (σ_1 * σ_2)
 
-    term_Φ_Φ = 4 * (Φ_2(μ_1 / σ_1, μ_2 / σ_2, ρ) - Φ(μ_1 / σ_1) * Φ(μ_2 / σ_2))
+    term_Φ_Φ = 4 * Φ_2_increment_quad(μ_1 / σ_1, μ_2 / σ_2, ρ)
     term_a_c = 2 * (a_1 @ Σ @ c_2) / σ_1 * ϕ(μ_1 / σ_1)
     term_c_a = 2 * (a_2 @ Σ @ c_1) / σ_2 * ϕ(μ_2 / σ_2)
 
