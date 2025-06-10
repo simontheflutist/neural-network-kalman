@@ -136,7 +136,7 @@ class ProbitLinear(equinox.Module):
 
     def _propagate_cov_lin(self, μ, Σ):
         J = jax.jacobian(self.__call__)(μ)
-        return J @ Σ @ J.T
+        return rectify_eigenvalues(J @ Σ @ J.T)
 
     def _mc_mean_cov(self, μ, Σ, key, rep):
         input_samples = jax.random.multivariate_normal(key, mean=μ, cov=Σ, shape=rep)
@@ -207,7 +207,8 @@ class ProbitLinearNetwork(equinox.Module):
                 μ, Σ = layer._propagate_mean_lin(μ, Σ), layer._propagate_cov_lin(μ, Σ)
             return μ, Σ
         elif method == "unscented":
-            return unscented_transform(self.__call__, μ, Σ)
+            μ, Σ = unscented_transform(self.__call__, μ, Σ)
+            return μ, rectify_eigenvalues(Σ)
         else:
             raise ValueError(f"propagate_mean_cov: {method} is not a valid method")
 
