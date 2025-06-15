@@ -157,15 +157,16 @@ class ProbitLinear(equinox.Module):
             μ, Σ, self.A, self.b, self.C, self.d
         )
 
-    def _propagate_cov(self, μ, Σ):
+    def _propagate_cov(self, μ, Σ, rectify=True):
         last_four_axes = (*((None,) * (2 + 3)), *((0,) * 3))
         middle_four_axes = (*((None,) * 2), *((0,) * 3), *((None,) * 3))
 
-        return rectify_eigenvalues(
-            jax.vmap(jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes)(
-                μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C
-            )
-        )
+        result = jax.vmap(
+            jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes
+        )(μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C)
+        if rectify:
+            result = rectify_eigenvalues(result)
+        return result
 
     def _propagate_mean_lin(self, μ, Σ):
         return self(μ)
@@ -181,33 +182,95 @@ class ProbitLinear(equinox.Module):
 
     def _augment_with_identity(self):
         """Returns the network that computes x -> (x, f(x)) where f is this network"""
-        A_new = jnp.vstack([jnp.zeros((self.in_size, self.in_size)), self.A])
-        b_new = jnp.hstack([jnp.zeros(self.in_size), self.b])
-        C_new = jnp.vstack([jnp.eye(self.in_size), self.C])
-        d_new = jnp.hstack([jnp.zeros(self.in_size), self.d])
+        A_new = jnp.vstack([jnp.zeros((self.in_size, self.in_size), dtype=int), self.A])
+        b_new = jnp.hstack([jnp.zeros(self.in_size, dtype=int), self.b])
+        C_new = jnp.vstack([jnp.eye(self.in_size, dtype=int), self.C])
+        d_new = jnp.hstack([jnp.zeros(self.in_size, dtype=int), self.d])
         return ProbitLinear(
             in_size=self.in_size,
             out_size=self.in_size + self.out_size,
-            A=jax.lax.stop_gradient(A_new),
-            b=jax.lax.stop_gradient(b_new),
-            C=jax.lax.stop_gradient(C_new),
-            d=jax.lax.stop_gradient(d_new),
+            A=A_new,
+            b=b_new,
+            C=C_new,
+            d=d_new,
         )
-        # stop gradient because the resulting network should not be trainable
+
+    def _augment_with_sum(self, w_size):
+        """Returns the network that computes (w, x) -> (w + f(x)) where f is this network"""
+        A_new = jnp.hstack([jnp.zeros((w_size, w_size), dtype=int), self.A])
+        b_new = self.b
+        C_new = jnp.hstack([jnp.eye(w_size, dtype=int), self.C])
+        d_new = self.d
+        return ProbitLinear(
+            in_size=self.in_size + w_size,
+            out_size=self.out_size,
+            A=A_new,
+            b=b_new,
+            C=C_new,
+            d=d_new,
+        )
+
+    # def _augment_with_proj(self, w_size):
+    #     """Returns the network that computes (w, x) -> (w + 0*f(x)) where f is this network"""
+    #     A_new = jnp.hstack([jnp.zeros((w_size, w_size), dtype=int), jnp.zeros_like(self.A, dtype=int)])
+    #     b_new = jnp.zeros_
+    #     C_new = jnp.hstack([jnp.eye(w_size, dtype=int), self.C])
+    #     d_new = self.d
+    #     return ProbitLinear(
+    #         in_size=self.in_size + w_size,
+    #         out_size=self.out_size,
+    #         A=A_new,
+    #         b=b_new,
+    #         C=C_new,
+    #         d=d_new,
+    #     )
 
     def _direct_sum_with_identity(self, x_size):
         """Returns the network that computes (x, y) -> (x, f(y)) where f is this network"""
-        A_new = jax.scipy.linalg.block_diag(jnp.zeros((x_size, x_size)), self.A)
-        b_new = jnp.hstack([jnp.zeros(x_size), self.b])
-        C_new = jax.scipy.linalg.block_diag(jnp.eye(x_size), self.C)
-        d_new = jnp.hstack([jnp.zeros(x_size), self.d])
+        A_new = jax.scipy.linalg.block_diag(
+            jnp.zeros((x_size, x_size), dtype=int), self.A
+        )
+        b_new = jnp.hstack([jnp.zeros(x_size, dtype=int), self.b])
+        C_new = jax.scipy.linalg.block_diag(jnp.eye(x_size, dtype=int), self.C)
+        d_new = jnp.hstack([jnp.zeros(x_size, dtype=int), self.d])
         return ProbitLinear(
             in_size=x_size + self.in_size,
             out_size=x_size + self.out_size,
-            A=jax.lax.stop_gradient(A_new),
-            b=jax.lax.stop_gradient(b_new),
-            C=jax.lax.stop_gradient(C_new),
-            d=jax.lax.stop_gradient(d_new),
+            A=A_new,
+            b=b_new,
+            C=C_new,
+            d=d_new,
+        )
+
+    def _jitter(self, key, scale):
+        keys = jax.random.split(key, 4)
+        A_new = (
+            self.A + scale * jax.random.normal(keys[0], self.A.shape)
+            if equinox.is_inexact_array(self.A)
+            else self.A
+        )
+        b_new = (
+            self.b + scale * jax.random.normal(keys[1], self.b.shape)
+            if equinox.is_inexact_array(self.b)
+            else self.b
+        )
+        C_new = (
+            self.C + scale * jax.random.normal(keys[2], self.C.shape)
+            if equinox.is_inexact_array(self.C)
+            else self.C
+        )
+        d_new = (
+            self.d + scale * jax.random.normal(keys[3], self.d.shape)
+            if equinox.is_inexact_array(self.d)
+            else self.d
+        )
+        return ProbitLinear(
+            in_size=self.in_size,
+            out_size=self.out_size,
+            A=A_new,
+            b=b_new,
+            C=C_new,
+            d=d_new,
         )
 
 
@@ -233,10 +296,10 @@ class ProbitLinearNetwork(equinox.Module):
         return x
 
     @equinox.filter_jit
-    def propagate_mean_cov(self, μ, Σ, method="analytic"):
+    def propagate_mean_cov(self, μ, Σ, method="analytic", rectify=True):
         if method == "analytic":
             for layer in self.layers:
-                μ, Σ = layer._propagate_mean(μ, Σ), layer._propagate_cov(μ, Σ)
+                μ, Σ = layer._propagate_mean(μ, Σ), layer._propagate_cov(μ, Σ, rectify)
             return μ, Σ
         elif method == "linear":
             for layer in self.layers:
@@ -249,14 +312,30 @@ class ProbitLinearNetwork(equinox.Module):
             raise ValueError(f"propagate_mean_cov: {method} is not a valid method")
 
     @equinox.filter_jit
-    def propagate_mean_cov_block(self, means, covariances, method="analytic"):
+    def propagate_mean_cov_block(
+        self, means, covariances, method="analytic", rectify=True
+    ):
         μ = jnp.concatenate(means)
         Σ = jax.scipy.linalg.block_diag(*covariances)
-        return self.propagate_mean_cov(μ, Σ, method)
+        return self.propagate_mean_cov(μ, Σ, method, rectify)
 
     def augment_with_identity(self):
         """Returns the network that computes (x, f(x)) where f(x) is this network"""
         new_layers = [self.layers[0]._augment_with_identity()]
         for layer in self.layers[1:]:
             new_layers.append(layer._direct_sum_with_identity(self.in_size))
+        return ProbitLinearNetwork(*new_layers)
+
+    def augment_with_sum(self, w_size):
+        """Returns the network that computes (w, x) -> (w + f(x)) where f is this network"""
+        new_layers = []
+        for layer in self.layers[:-1]:
+            new_layers.append(layer._direct_sum_with_identity(w_size))
+        new_layers.append(self.layers[-1]._augment_with_sum(w_size))
+        return ProbitLinearNetwork(*new_layers)
+
+    def jitter(self, key, scale):
+        new_layers = []
+        for key, layer in zip(jax.random.split(key, len(self.layers)), self.layers):
+            new_layers.append(layer._jitter(key, scale))
         return ProbitLinearNetwork(*new_layers)
