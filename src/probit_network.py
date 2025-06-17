@@ -210,21 +210,6 @@ class ProbitLinear(equinox.Module):
             d=d_new,
         )
 
-    # def _augment_with_proj(self, w_size):
-    #     """Returns the network that computes (w, x) -> (w + 0*f(x)) where f is this network"""
-    #     A_new = jnp.hstack([jnp.zeros((w_size, w_size), dtype=int), jnp.zeros_like(self.A, dtype=int)])
-    #     b_new = jnp.zeros_
-    #     C_new = jnp.hstack([jnp.eye(w_size, dtype=int), self.C])
-    #     d_new = self.d
-    #     return ProbitLinear(
-    #         in_size=self.in_size + w_size,
-    #         out_size=self.out_size,
-    #         A=A_new,
-    #         b=b_new,
-    #         C=C_new,
-    #         d=d_new,
-    #     )
-
     def _direct_sum_with_identity(self, x_size):
         """Returns the network that computes (x, y) -> (x, f(y)) where f is this network"""
         A_new = jax.scipy.linalg.block_diag(
