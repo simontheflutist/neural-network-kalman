@@ -87,7 +87,13 @@ class NeuralKalmanFilter(equinox.Module):
 
     @equinox.filter_jit
     def correct_with_recalibrate(
-        self, x_and_y, P_x_and_y, y, method="analytic", backout="trace"
+        self,
+        x_and_y,
+        P_x_and_y,
+        y,
+        method="analytic",
+        backout="trace",
+        return_recalibration_difference=False,
     ):
         x = x_and_y[self.STATES]
         P_x = P_x_and_y[self.STATES, self.STATES]
@@ -107,7 +113,7 @@ class NeuralKalmanFilter(equinox.Module):
         _, P_x_and_y_recal = self.H_aug.propagate_mean_cov(
             x_updated, P_x, method=method, rectify=True
         )
-        P_x_and_y_recal = P_x_and_y_recal.at[self.OUTPUTS, self.OUTPUTS].add(self.R)
+        P_x_and_y_recal = P_x_and_y_recal.at[self.OUTPUTS, self.OUTPUTS]
         S_recal = P_x_and_y_recal[self.OUTPUTS, self.OUTPUTS]
         P_x_recal = (
             P_x_and_y[self.STATES, self.STATES]
@@ -134,6 +140,8 @@ class NeuralKalmanFilter(equinox.Module):
         x = jnp.where(backout_criterion, x, x_updated)
         P = jnp.where(backout_criterion, P_x, P_x_recal)
 
+        if return_recalibration_difference:
+            return x, P, jnp.linalg.norm(P_x_and_y_recal - P_x_and_y)
         return x, P
 
     @staticmethod
