@@ -11,10 +11,12 @@ class NeuralKalmanFilter(equinox.Module):
     n_u: int
     n_y: int
     F: ProbitLinearNetwork
+    F_aug: ProbitLinearNetwork
     H_aug: ProbitLinearNetwork
     Q: jnp.ndarray
     R: jnp.ndarray
     STATES: slice
+    NEXT_STATES: slice
     INPUTS: slice
     OUTPUTS: slice
     JOINT: slice
@@ -37,6 +39,10 @@ class NeuralKalmanFilter(equinox.Module):
         self.INPUTS = slice(n_x, n_x + n_u)
         self.OUTPUTS = slice(-n_y, None)
         self.JOINT = slice(None, n_x + n_u + n_y)
+
+        # Used for smoothing
+        self.F_aug = F.augment_with_identity()
+        self.NEXT_STATES = slice(n_x, None)
 
     @equinox.filter_jit
     def predict(self, x, P, method="analytic"):
@@ -143,6 +149,27 @@ class NeuralKalmanFilter(equinox.Module):
         if return_recalibration_difference:
             return x, P, jnp.linalg.norm(P_x_and_y_recal - P_x_and_y)
         return x, P
+
+    @equinox.filter_jit
+    def smooth(self, x_current, P_current, x_next, P_next, method="analytic"):
+        # joint distribution of x_current and F(x_current)
+        x_current_and_next, P_current_and_next = self.F_aug.propagate_mean_cov(
+            x_current, P_current, method=method
+        )
+        # smoothing gain
+        G = jnp.linalg.solve(
+            P_current_and_next[self.NEXT_STATES, self.NEXT_STATES] + self.Q,
+            P_current_and_next[self.NEXT_STATES, self.STATES],
+        ).T
+        # smoothing update
+        x_smoothed = x_current + G @ (x_next - x_current_and_next[self.NEXT_STATES])
+        P_smoothed = (
+            P_current
+            + G
+            @ (P_next - P_current_and_next[self.NEXT_STATES, self.NEXT_STATES])
+            @ G.T
+        )
+        return x_smoothed, P_smoothed
 
     @staticmethod
     @equinox.filter_jit
