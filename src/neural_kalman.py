@@ -1,6 +1,5 @@
 import equinox
 import jax
-import numpy as np
 from jax import numpy as jnp
 
 from probit_network import ProbitLinearNetwork
@@ -81,7 +80,28 @@ class NeuralKalmanFilter(equinox.Module):
         return x_and_y, P_x_and_y
 
     @equinox.filter_jit
-    def correct(self, x_and_y, P_x_and_y, y):
+    def correct(
+        self,
+        x_and_y,
+        P_x_and_y,
+        y,
+        recalibrate=False,
+        recalibrate_method="analytic",
+        recalibrate_backout="trace",
+    ):
+        if recalibrate:
+            return self._recalibrated_correct(
+                x_and_y,
+                P_x_and_y,
+                y,
+                method=recalibrate_method,
+                backout=recalibrate_backout,
+            )
+        else:
+            return self._simple_correct(x_and_y, P_x_and_y, y)
+
+    @equinox.filter_jit
+    def _simple_correct(self, x_and_y, P_x_and_y, y):
         x, P = NeuralKalmanFilter.schur_complement(
             P_x_and_y[self.STATES, self.STATES],
             P_x_and_y[self.STATES, self.OUTPUTS],
@@ -92,7 +112,7 @@ class NeuralKalmanFilter(equinox.Module):
         return x, P
 
     @equinox.filter_jit
-    def correct_with_recalibrate(
+    def _recalibrated_correct(
         self,
         x_and_y,
         P_x_and_y,
@@ -119,7 +139,7 @@ class NeuralKalmanFilter(equinox.Module):
         _, P_x_and_y_recal = self.H_aug.propagate_mean_cov(
             x_updated, P_x, method=method, rectify=True
         )
-        P_x_and_y_recal = P_x_and_y_recal.at[self.OUTPUTS, self.OUTPUTS]
+        P_x_and_y_recal = P_x_and_y_recal.at[self.OUTPUTS, self.OUTPUTS].add(self.R)
         S_recal = P_x_and_y_recal[self.OUTPUTS, self.OUTPUTS]
         P_x_recal = (
             P_x_and_y[self.STATES, self.STATES]
