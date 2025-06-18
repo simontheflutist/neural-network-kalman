@@ -305,7 +305,7 @@ class ProbitLinearNetwork(equinox.Module):
         return self.propagate_mean_cov(μ, Σ, method, rectify)
 
     def augment_with_identity(self):
-        """Returns the network that computes (x, f(x)) where f(x) is this network"""
+        """Returns the network that computes x -> (x, f(x)) where f(x) is this network"""
         new_layers = [self.layers[0]._augment_with_identity()]
         for layer in self.layers[1:]:
             new_layers.append(layer._direct_sum_with_identity(self.in_size))
