@@ -72,11 +72,6 @@ def _K(μ, Σ, a_1, b_1, c_1, a_2, b_2, c_2):
     return term_Φ_Φ + term_a_c + term_c_a + term_c_c
 
 
-def rectify_eigenvalues(P):
-    Λ, V = jnp.linalg.eigh(P, symmetrize_input=1)
-    return V @ jnp.diag(jnp.maximum(Λ, 0)) @ V.T
-
-
 class ProbitLinear(equinox.Module):
     A: jax.Array
     b: jax.Array
@@ -148,13 +143,23 @@ class ProbitLinear(equinox.Module):
     def __call__(
         self,
         x: typing.Union[np.array, jnp.array, normal.Normal],
+        method=None,
+        rectify=False,
     ):
         if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
             return jax.vmap(σ)(self.A @ x + self.b) + self.C @ x + self.d
         elif isinstance(x, normal.Normal):
-            return normal.Normal(
-                self._propagate_mean(x.μ, x.Σ), self._propagate_cov(x.μ, x.Σ)
-            )
+            if method == "analytic":
+                μ, Σ = self._propagate_mean(x.μ, x.Σ), self._propagate_cov(x.μ, x.Σ)
+            elif method == "linear":
+                μ, Σ = self._propagate_mean_lin(x.μ, x.Σ), self._propagate_cov_lin(
+                    x.μ, x.Σ
+                )
+            elif method == "unscented":
+                μ, Σ = unscented_transform(self.__call__, x.μ, x.Σ)
+            else:
+                raise ValueError(f"propagate_mean_cov: {method} is not a valid method")
+            return normal.Normal(μ, Σ, rectify)
         raise NotImplementedError
 
     def _propagate_mean(self, μ, Σ):
@@ -169,8 +174,6 @@ class ProbitLinear(equinox.Module):
         result = jax.vmap(
             jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes
         )(μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C)
-        if rectify:
-            result = rectify_eigenvalues(result)
         return result
 
     def _propagate_mean_lin(self, μ, Σ):
@@ -178,12 +181,15 @@ class ProbitLinear(equinox.Module):
 
     def _propagate_cov_lin(self, μ, Σ):
         J = jax.jacobian(self.__call__)(μ)
-        return rectify_eigenvalues(J @ Σ @ J.T)
+        return J @ Σ @ J.T
 
-    def _mc_mean_cov(self, μ, Σ, key, rep):
-        input_samples = jax.random.multivariate_normal(key, mean=μ, cov=Σ, shape=rep)
+    def _mc_mean_cov(self, dist: normal.Normal, key, rep):
+        input_samples = dist.samples(rep, key)
         output_samples = jax.vmap(self.__call__)(input_samples)
-        return jnp.mean(output_samples, axis=0), jnp.cov(output_samples.T)
+        return normal.Normal(
+            jnp.mean(output_samples, axis=0),
+            jnp.cov(output_samples, rowvar=False).reshape(self.out_size, self.out_size),
+        )
 
     def _augment_with_identity(self):
         """Returns the network that computes x -> (x, f(x)) where f is this network"""
@@ -278,28 +284,32 @@ class ProbitLinearNetwork(equinox.Module):
         assert type(key) is int
         return self.layers[key]
 
-    @jax.jit
-    def __call__(self, *x):
-        x = jnp.concatenate(x)
+    @equinox.filter_jit
+    def __call__(
+        self,
+        x: typing.Union[np.array, jnp.array, normal.Normal],
+        method="analytic",
+        rectify=False,
+    ):
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, method, rectify)
         return x
 
-    @equinox.filter_jit
-    def propagate_mean_cov(self, μ, Σ, method="analytic", rectify=True):
-        if method == "analytic":
-            for layer in self.layers:
-                μ, Σ = layer._propagate_mean(μ, Σ), layer._propagate_cov(μ, Σ, rectify)
-            return μ, Σ
-        elif method == "linear":
-            for layer in self.layers:
-                μ, Σ = layer._propagate_mean_lin(μ, Σ), layer._propagate_cov_lin(μ, Σ)
-            return μ, Σ
-        elif method == "unscented":
-            μ, Σ = unscented_transform(self.__call__, μ, Σ)
-            return μ, rectify_eigenvalues(Σ)
-        else:
-            raise ValueError(f"propagate_mean_cov: {method} is not a valid method")
+    # @equinox.filter_jit
+    # def propagate_mean_cov(self, μ, Σ, method="analytic", rectify=True):
+    #     if method == "analytic":
+    #         for layer in self.layers:
+    #             μ, Σ = layer._propagate_mean(μ, Σ), layer._propagate_cov(μ, Σ, rectify)
+    #         return μ, Σ
+    #     elif method == "linear":
+    #         for layer in self.layers:
+    #             μ, Σ = layer._propagate_mean_lin(μ, Σ), layer._propagate_cov_lin(μ, Σ)
+    #         return μ, Σ
+    #     elif method == "unscented":
+    #         μ, Σ = unscented_transform(self.__call__, μ, Σ)
+    #         return μ, rectify_eigenvalues(Σ)
+    #     else:
+    #         raise ValueError(f"propagate_mean_cov: {method} is not a valid method")
 
     @equinox.filter_jit
     def propagate_mean_cov_block(
