@@ -7,6 +7,7 @@ from jax import numpy as jnp
 from jax.scipy.stats.norm import cdf as Φ
 from jax.scipy.stats.norm import pdf as ϕ
 
+import normal
 from random_matrix import RandomMatrixFactory, ZeroMatrix
 from unscented import unscented_transform
 
@@ -143,9 +144,18 @@ class ProbitLinear(equinox.Module):
         b = jnp.zeros(out_size, dtype=int)
         return ProbitLinear(in_size, out_size, A=A, b=b, C=C, d=d)
 
-    @jax.jit
-    def __call__(self, x):
-        return jax.vmap(σ)(self.A @ x + self.b) + self.C @ x + self.d
+    @equinox.filter_jit
+    def __call__(
+        self,
+        x: typing.Union[np.array, jnp.array, normal.Normal],
+    ):
+        if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
+            return jax.vmap(σ)(self.A @ x + self.b) + self.C @ x + self.d
+        elif isinstance(x, normal.Normal):
+            return normal.Normal(
+                self._propagate_mean(x.μ, x.Σ), self._propagate_cov(x.μ, x.Σ)
+            )
+        raise NotImplementedError
 
     def _propagate_mean(self, μ, Σ):
         return jax.vmap(_M, in_axes=(None, None, 0, 0, 0, 0))(
