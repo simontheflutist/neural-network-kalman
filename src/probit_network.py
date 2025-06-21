@@ -76,11 +76,6 @@ def rectify_eigenvalues(P):
     return V @ jnp.diag(jnp.maximum(Λ, 0)) @ V.T
 
 
-@equinox.filter_jit
-def sum(*a):
-    return jnp.sum(jnp.array(a))
-
-
 class ProbitLinear(equinox.Module):
     A: jax.Array
     b: jax.Array
