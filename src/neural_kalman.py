@@ -2,6 +2,7 @@ import equinox
 import jax
 from jax import numpy as jnp
 
+from normal import Normal
 from probit_network import ProbitLinearNetwork
 
 
@@ -44,72 +45,49 @@ class NeuralKalmanFilter(equinox.Module):
         self.NEXT_STATES = slice(n_x, None)
 
     @equinox.filter_jit
-    def predict(self, x, P, method="analytic"):
+    def predict(self, x: Normal, method="analytic"):
         """Predicts the next state and output given the current state."""
         # predict state
-        x, P = self.F.propagate_mean_cov(x, P, method=method, rectify=True)
-        P = P + self.Q
+        x_pred = self.F(x, method=method, rectify=True).add_covariance(self.Q)
         # predict joint distribution of state and output
-        x_and_y, P_x_and_y = self.H_aug.propagate_mean_cov(
-            x, P, method=method, rectify=True
+        x_and_y_pred = self.H_aug(x_pred, method=method, rectify=True).add_covariance(
+            self.R, at=self.OUTPUTS
         )
-        P_x_and_y = P_x_and_y.at[self.OUTPUTS, self.OUTPUTS].add(self.R)
-        return x_and_y, P_x_and_y
+        return x_and_y_pred
 
     @equinox.filter_jit
-    def predict_with_input(self, x, u, P, method="analytic"):
+    def predict_with_input(self, x, u, method="analytic"):
         """Predicts the next state and output distribution given the current state and exogenous input."""
         # predict state
-        x_and_u, P_x_and_u = self.F.propagate_mean_cov_block(
-            (x, u), (P, jnp.zeros((self.n_u, self.n_u))), method=method, rectify=True
-        )
-        P_x = P_x_and_u[self.STATES, self.STATES] + self.Q
+        x_and_u = Normal.independent(x, u)
+        x_pred = self.F(x_and_u, method=method, rectify=True).add_covariance(self.Q)
         # predict joint distribution of state and output
-        x_and_u_and_y, P_x_and_u_and_y = self.H_aug.propagate_mean_cov_block(
-            (x_and_u[self.STATES], u),
-            (P_x, jnp.zeros((self.n_u, self.n_u))),
-            method=method,
-            rectify=True,
-        )
-        P_x_and_u_and_y = P_x_and_u_and_y.at[self.OUTPUTS, self.OUTPUTS].add(self.R)
+        x_pred_and_u = Normal.independent(x_pred, u)
+        x_and_y_pred = self.H_aug(
+            x_pred_and_u, method=method, rectify=True
+        ).add_covariance(self.R, at=self.OUTPUTS)
         # discard the input
-        x_and_y = jnp.delete(x_and_u_and_y, self.INPUTS)
-        P_x_and_y = jnp.delete(
-            jnp.delete(P_x_and_u_and_y, self.INPUTS, 0), self.INPUTS, 1
-        )
-        return x_and_y, P_x_and_y
+        return x_and_y_pred.delete(self.INPUTS)
 
     @equinox.filter_jit
     def correct(
         self,
         x_and_y,
-        P_x_and_y,
         y,
         recalibrate=False,
         recalibrate_method="analytic",
         recalibrate_backout="trace",
     ):
         if recalibrate:
+            raise NotImplementedError
             return self._recalibrated_correct(
                 x_and_y,
-                P_x_and_y,
                 y,
                 method=recalibrate_method,
                 backout=recalibrate_backout,
             )
         else:
-            return self._simple_correct(x_and_y, P_x_and_y, y)
-
-    @equinox.filter_jit
-    def _simple_correct(self, x_and_y, P_x_and_y, y):
-        x, P = NeuralKalmanFilter.schur_complement(
-            P_x_and_y[self.STATES, self.STATES],
-            P_x_and_y[self.STATES, self.OUTPUTS],
-            P_x_and_y[self.OUTPUTS, self.OUTPUTS],
-            x_and_y[self.STATES],
-            y - x_and_y[self.OUTPUTS],
-        )
-        return x, P
+            return x_and_y.condition(self.STATES, given=self.OUTPUTS, equals=y)
 
     @equinox.filter_jit
     def _recalibrated_correct(

@@ -13,7 +13,11 @@ class Normal(equinox.Module):
 
     @staticmethod
     def standard(n):
-        return Normal(jnp.zeros(n), jnp.eye(n))
+        return Normal(μ=jnp.zeros(n), Σ=jnp.eye(n))
+
+    @staticmethod
+    def certain(μ):
+        return Normal(μ=μ, Σ=jnp.zeros((μ.shape[0], μ.shape[0]), dtype=int))
 
     def __init__(self, μ, Σ, rectify=False):
         self.μ = μ
@@ -37,14 +41,16 @@ class Normal(equinox.Module):
     def pdf(self, x):
         return scipy.stats.multivariate_normal.pdf(x, mean=self.μ, cov=self.Σ)
 
-    def __add__(self, other):
-        if isinstance(other, Normal):
-            new_μ = jnp.concatenate([self.μ, other.μ])
-            new_Σ = jax.scipy.linalg.block_diag(self.Σ, other.Σ)
-            return Normal(new_μ, new_Σ)
-        raise NotImplementedError(
-            "Addition is only supported with another Normal distribution."
-        )
+    @staticmethod
+    def independent(*normals: "Normal") -> "Normal":
+        """Creates a joint distribution with zero correlations from multiple Normal distributions."""
+        μ = jnp.concatenate([normal.μ for normal in normals])
+        Σ_blocks = [normal.Σ for normal in normals]
+        Σ = jax.scipy.linalg.block_diag(*Σ_blocks)
+        return Normal(μ, Σ)
+
+    def add_covariance(self, cov, at=slice(None, None)):
+        return Normal(self.μ, self.Σ.at[at, at].add(cov))
 
     def __getitem__(self, index: typing.Union[int, slice]):
         """Return the marginal distribution for the specified index."""
@@ -54,6 +60,38 @@ class Normal(equinox.Module):
             return Normal(self.μ[index], self.Σ[index, index])
         else:
             raise ValueError
+
+    def delete(self, index: int):
+        return Normal(
+            jnp.delete(self.μ, index),
+            jnp.delete(jnp.delete(self.Σ, index, 0), index, 1),
+        )
+
+    def condition(self, target: slice, given: slice, equals: jnp.ndarray):
+        μ, Σ = schur_complement(
+            self.Σ[target, target],
+            self.Σ[target, given],
+            self.Σ[given, given],
+            self.μ[target],
+            equals - self.μ[given],
+        )
+        return Normal(μ, Σ)
+
+
+@equinox.filter_jit
+def schur_complement(A, B, C, x, y):
+    """Returns a numerically stable(ish) attempt at
+    x + B C^(-1) y,
+    A - B C^(-1) B^T.
+    """
+    # C = U U^T
+    U = jax.scipy.linalg.cholesky(C)
+    # B_tilde = B U^-T
+    B_tilde = jax.scipy.linalg.solve_triangular(U, B.T, trans=1, lower=False).T
+    return (
+        x + B_tilde @ jax.scipy.linalg.solve_triangular(U, y, lower=False),
+        A - B_tilde.dot(B_tilde.T),
+    )
 
 
 def rectify_eigenvalues(P):

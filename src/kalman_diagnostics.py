@@ -1,3 +1,5 @@
+import typing
+
 import equinox
 import jax
 import jax.numpy as jnp
@@ -5,12 +7,27 @@ import numpy as np
 import scipy.stats
 
 import neural_kalman
+import normal
 
 
 class KalmanDiagnostics(equinox.Module):
     kalman_filter: neural_kalman.NeuralKalmanFilter
     x: jnp.ndarray = None
     diagnostic_times: slice = slice(1, None)
+
+    def point_rmse(self, state_trajectory: typing.List[normal.Normal]):
+        return (
+            np.mean(
+                [
+                    (z.μ[self.kalman_filter.STATES] - x) ** 2
+                    for z, x in zip(
+                        state_trajectory[self.diagnostic_times],
+                        self.x[self.diagnostic_times],
+                    )
+                ]
+            )
+            ** 0.5
+        )
 
     def calculate_coverage(self, predicted_mean, predicted_covariance):
         x_pred_χ2 = jax.vmap(
@@ -36,17 +53,20 @@ class KalmanDiagnostics(equinox.Module):
         )
 
     def plot_state_trajectories(
-        self, predicted_mean, predicted_covariance, state_index, times, coverage=0.9
+        self,
+        state_trajectory: typing.List[normal.Normal],
+        state_index,
+        times=None,
+        coverage=0.9,
     ):
+        if times is None:
+            times = self.diagnostic_times
         plot_times = np.arange(self.x.shape[0])[times]
         plot_state = self.x[times, state_index]
-        plot_mean = predicted_mean[times, self.kalman_filter.STATES][:, state_index]
+        plot_marginals = [z[state_index] for z in state_trajectory[times]]
+        plot_mean = np.array([z.μ for z in plot_marginals]).reshape(-1)
 
-        std = np.sqrt(
-            predicted_covariance[
-                times, self.kalman_filter.STATES, self.kalman_filter.STATES
-            ][:, state_index, state_index]
-        )
+        std = np.array([z.Σ**0.5 for z in plot_marginals]).reshape(-1)
         std_multiplier = scipy.stats.norm.ppf(1 - (1 - coverage) / 2)
         plot_lower = plot_mean - std_multiplier * std
         plot_upper = plot_mean + std_multiplier * std
