@@ -2,6 +2,7 @@ import equinox
 import jax
 from jax import numpy as jnp
 
+import normal
 from normal import Normal
 from probit_network import ProbitLinearNetwork
 
@@ -149,25 +150,15 @@ class NeuralKalmanFilter(equinox.Module):
         return x, P
 
     @equinox.filter_jit
-    def smooth(self, x_current, P_current, x_next, P_next, method="analytic"):
+    def smooth(self, x_current: Normal, x_next: Normal, method="analytic"):
         # joint distribution of x_current and F(x_current)
-        x_current_and_next, P_current_and_next = self.F_aug.propagate_mean_cov(
-            x_current, P_current, method=method
+        x_current_and_next = self.F_aug(x_current, method=method).add_covariance(
+            self.Q, at=self.NEXT_STATES
         )
-        # smoothing gain
-        G = jnp.linalg.solve(
-            P_current_and_next[self.NEXT_STATES, self.NEXT_STATES] + self.Q,
-            P_current_and_next[self.NEXT_STATES, self.STATES],
-        ).T
-        # smoothing update
-        x_smoothed = x_current + G @ (x_next - x_current_and_next[self.NEXT_STATES])
-        P_smoothed = (
-            P_current
-            + G
-            @ (P_next - P_current_and_next[self.NEXT_STATES, self.NEXT_STATES])
-            @ G.T
+        # condition on F(x_current) = x_next
+        return x_current_and_next.condition(
+            target=self.STATES, given=self.NEXT_STATES, equals=x_next
         )
-        return x_smoothed, P_smoothed
 
     @staticmethod
     @equinox.filter_jit

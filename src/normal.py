@@ -52,6 +52,7 @@ class Normal(equinox.Module):
     def add_covariance(self, cov, at=slice(None, None)):
         return Normal(self.μ, self.Σ.at[at, at].add(cov))
 
+    @equinox.filter_jit
     def __getitem__(self, index: typing.Union[int, slice]):
         """Return the marginal distribution for the specified index."""
         if isinstance(index, int):
@@ -67,24 +68,40 @@ class Normal(equinox.Module):
             jnp.delete(jnp.delete(self.Σ, index, 0), index, 1),
         )
 
-    def condition(self, target: slice, given: slice, equals: jnp.ndarray):
-        μ, Σ = schur_complement(
-            self.Σ[target, target],
-            self.Σ[target, given],
-            self.Σ[given, given],
-            self.μ[target],
-            equals - self.μ[given],
-        )
-        return Normal(μ, Σ)
+    def condition(
+        self, target: slice, given: slice, equals: typing.Union[jnp.ndarray, "Normal"]
+    ):
+        if isinstance(equals, Normal):
+            μ, Σ = schur_complement_2(
+                A=self.Σ[target, target],
+                B=self.Σ[target, given],
+                C=self.Σ[given, given],
+                D=equals.Σ,
+                x=self.μ[target],
+                y=equals.μ - self.μ[given],
+            )
+        else:
+            μ, Σ = schur_complement(
+                A=self.Σ[target, target],
+                B=self.Σ[target, given],
+                C=self.Σ[given, given],
+                x=self.μ[target],
+                y=equals - self.μ[given],
+            )
+        return Normal(μ, Σ, rectify=False)
+
+    def χ2(self, x):
+        diff = x - self.μ
+        return diff.T @ jnp.linalg.solve(self.Σ, diff)
 
 
 @equinox.filter_jit
 def schur_complement(A, B, C, x, y):
-    """Returns a numerically stable(ish) attempt at
+    """Returns a numerically stable evaluation of
     x + B C^(-1) y,
     A - B C^(-1) B^T.
     """
-    # C = U U^T
+    # C = U^T U
     U = jax.scipy.linalg.cholesky(C)
     # B_tilde = B U^-T
     B_tilde = jax.scipy.linalg.solve_triangular(U, B.T, trans=1, lower=False).T
@@ -92,6 +109,20 @@ def schur_complement(A, B, C, x, y):
         x + B_tilde @ jax.scipy.linalg.solve_triangular(U, y, lower=False),
         A - B_tilde.dot(B_tilde.T),
     )
+
+
+@equinox.filter_jit
+def schur_complement_2(A, B, C, D, x, y):
+    """Returns a numerically decent evaluation of
+    x + G y,
+    A + G (D - C) G^T.
+    where G = B C^(-1).
+    """
+    G = jnp.linalg.solve(
+        C,
+        B.T,
+    ).T
+    return x + G @ (y), (A + G @ (D - C) @ G.T)
 
 
 def rectify_eigenvalues(P):

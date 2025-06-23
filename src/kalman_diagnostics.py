@@ -29,17 +29,13 @@ class KalmanDiagnostics(equinox.Module):
             ** 0.5
         )
 
-    def calculate_coverage(self, predicted_mean, predicted_covariance):
-        x_pred_χ2 = jax.vmap(
-            lambda residual, cov: residual @ jnp.linalg.solve(cov, residual)
-        )(
-            predicted_mean[self.diagnostic_times, :] - self.x[self.diagnostic_times, :],
-            predicted_covariance[
-                self.diagnostic_times,
-                self.kalman_filter.STATES,
-                self.kalman_filter.STATES,
-            ],
-        )
+    def calculate_coverage(self, predictions: typing.List[normal.Normal]):
+        x_pred_χ2 = [
+            z.χ2(x)
+            for z, x in zip(
+                predictions[self.diagnostic_times], self.x[self.diagnostic_times]
+            )
+        ]
         x_pred_χ2_sorted = sorted(x_pred_χ2)
         x_pred_χ2_theoretical_percentage_points = scipy.stats.chi2(
             self.kalman_filter.n_x
