@@ -41,7 +41,7 @@ def dΦ_2__dρ(ρ, h, k):
 
 
 @equinox.filter_jit
-def Φ_2_increment_quad(h, k, ρ, num_points=20):
+def Φ_2_increment_quad(h, k, ρ, num_points=10):
     """https://www.tandfonline.com/doi/epdf/10.1080/00949659008811236"""
     nodes, weights = gauss_legendre_on_0_x(num_points, ρ)
     integrand_values = jax.vmap(dΦ_2__dρ, in_axes=(0, None, None))(nodes, h, k)
