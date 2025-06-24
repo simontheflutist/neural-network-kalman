@@ -19,9 +19,9 @@ class Normal(equinox.Module):
     def certain(μ):
         return Normal(μ=μ, Σ=jnp.zeros((μ.shape[0], μ.shape[0]), dtype=int))
 
-    def __init__(self, μ, Σ, rectify=False):
+    def __init__(self, μ, Σ):
         self.μ = μ
-        self.Σ = Σ if not rectify else rectify_eigenvalues(Σ)
+        self.Σ = Σ
         self.n = μ.shape[0]
         assert self.Σ.shape == (self.n, self.n), self.Σ
 
@@ -88,11 +88,14 @@ class Normal(equinox.Module):
                 x=self.μ[target],
                 y=equals - self.μ[given],
             )
-        return Normal(μ, Σ, rectify=False)
+        return Normal(μ, Σ)
 
     def χ2(self, x):
         diff = x - self.μ
         return diff.T @ jnp.linalg.solve(self.Σ, diff)
+
+    def rectify(self):
+        return Normal(self.μ, rectify_eigenvalues(self.Σ))
 
 
 @equinox.filter_jit
