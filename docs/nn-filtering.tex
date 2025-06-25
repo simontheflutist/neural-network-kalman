@@ -3,7 +3,9 @@
 % \usepackage{bibte?}
 % \addbibresource{measurement-error-gp.bib}
 
+\usepackage[utf8]{inputenc}
 \usepackage{lmodern}
+
 \usepackage{amsmath, amsthm, amsfonts, amssymb, mathtools, commath,
 hyperref, cancel, bm}
 \usepackage{doi, xcolor}
@@ -12,6 +14,7 @@ hyperref, cancel, bm}
 % \usepackage{eulervm}
 \usepackage[tracking, spacing]{microtype}
 \usepackage[margin=1in]{geometry}
+\usepackage{algorithm,algpseudocode, algorithmicx}
 \microtypecontext{spacing=nonfrench}
 \newtheorem{definition}{Definition}
 \newtheorem{proposition}{Proposition}
@@ -30,327 +33,575 @@ hyperref, cancel, bm}
 \begin{document}
 Analytic filtering for single-layer RBF dynamics:
 \cite{deisenroth_analytic_2009}
-\chapter{MMSE filtering background}
-Suppose that the nominal system dynamics are given by
-% \begin{subequations}
+
+\chapter{Notation}
+The vector \(e_i\) has a 1 in the \(i\)th place and zeros everywhere else.
+
+We use a highly stylized notation to depict state dynamics.
+Lowercase letters \(\{x_t\}\) refer to a realization of a stochastic process.
+Statements with an equals sign such as \(x_{t} = F(x_{t-1}) +
+\eta_t\) are ``strong,'' i.e.~hold almost surely.
+
+Uppercase letters such as \(\{X_t\}\) refer to probability laws.
+Statements with a \(\Longleftarrow\) such as \(X_t \Longleftarrow
+F(X_{t-1})\) are ``weak'' and denote propagation of uncertainty (the
+approximation of which is a key contribution of this paper): \(X_t\)
+is the distribution of \(F(X_{t-1})\).
+In expressions such as \(H(X_t) + \mathcal N(0, R)\), we mean that
+the noise term is independent of all other randomness.
+
+The comma \(,\) is a higher-order function:
+if \(x \mapsto f(x)\) and \(x \mapsto g(x)\) are functions, then \((f
+, g)\) is the function \(x \mapsto (f(x), g(x))\).
+
+The direct sum of two square matrices \(A\) and \(B\) is denoted by
+\(A \oplus B\) and refers to the block-diagonal matrix \(A \oplus B =
+  \begin{pmatrix} A & 0 \\ 0 & B
+\end{pmatrix}\).
+
+In algorithmic pseudocode, a \emph{Function} is a pure function in
+the mathematical or functional
+programming sense.
+In particular, the variable names are meaningless placeholders.
+\(f(x) = x^2\) defines the same function as \(f(y) = y^2\).
+A \emph{Procedure} is code that generates ``side effects.''
+Inside a procedure, the variable names are meaningful and refer to
+the same variables used to pose an algorithmic problem.
+
+\chapter{Background: prediction, filtering, and smoothing of
+nonlinear stochastic systems}
+A dynamic system is described by
+\begin{subequations}
+  \label{eq:dynamic-system}
+  \begin{align}
+    x_0 &\sim \mathcal{N}(\mu_0, \Sigma_0) \\
+    x_t &= F(x_{t-1}, u_t) + \eta_t, &\eta_t &\sim \mathcal{N}(0, Q)
+    & \forall t &\in \cbr{1 \ldots T}\\
+    y_t &= H(x_t, u_t) + \epsilon_t, &\epsilon_t &\sim \mathcal{N}(0,
+    R) & \forall t &\in \cbr{1 \ldots T}
+  \end{align}
+\end{subequations}
+where \(x_t \in \mathbb{R}^{n_x}\) is the state, \(u_t \in \mathbb
+R^{n_u}\) is the input, and \(y_t \in \mathbb{R}^{n_y}\) is the output.
+The random variables \(x_0\), \(\{\eta_t\}_{t=1}^T\), and
+\(\{\epsilon_t\}_{t=1}^T\) are independent.
+
+From this model three classic problems emerge.
+\begin{problem}[Prediction]\label{problem:prediction}
+  Given \(\{u_s\}_{s=0}^{t-1}\) and \(\{y_s\}_{s=1}^{t-1}\), predict
+  \(x_t\) and \(y_t\) as a joint distribution \((\hat X_{t \mid t-1},
+  \hat Y_{t \mid t-1})\).
+\end{problem}
+
+\begin{problem}[Filtering]\label{problem:filtering}
+  Given \(\{u_s\}_{s=0}^{t}\) and \(\{y_s\}_{s=1}^t\), estimate
+  \(x_t\) and \(y_t\) as a joint distribution \((\hat X_{t \mid t},
+  \hat Y_{t \mid t})\).
+\end{problem}
+
+\begin{problem}[Smoothing]\label{problem:smoothing}
+  Given \(\{u_s\}_{s=0}^T\) and \(\{y_s\}_{s=1}^T\), estimate \(x_t\)
+  and \(y_t\) as a joint distribution \((\hat X_{t \mid T}, \hat Y_{t
+  \mid T})\).
+\end{problem}
+In the case that \(F\) and \(H\) are linear functions,
+the Kalman filter Alg.~\ref{alg:kalman-filter} solves the prediction
+and filtering problems by a forward recursion, and the
+Rauch-Tung-Striebel smoother Alg.~\ref{alg:rts-smoother} solves the
+smoothing problem by a backward recursion.
+We have stylized these algorithms in order to highlight their
+Bayesian motivation and to establish abstractions that put many
+different types of nonlinear Kalman filters on the same footing.
+
+\begin{algorithm}
+  \caption{
+    \label{alg:kalman-filter}
+    General Kalman algorithm for recursive \textbf{prediction} (problem
+    \ref{problem:prediction}) and \textbf{filtering} (problem
+  \ref{problem:filtering})}
+  \begin{algorithmic}[1]
+    \Require State transition function \(F\) and observation model \(H\)
+    \Require State covariance \(Q\) and and observation covariance \(R\)
+    \Require Uncertainty propagation operator ``\(\Longleftarrow\)''
+    \Function{Predict}{$X, u$}
+    \State
+    \(X' \Longleftarrow F(X, u) + \mathcal{N}(0, Q)\)
+    \Comment{Propagate \(X\) through state transition}
+    \State
+    \(((X', u), Y') \Longleftarrow (\text{id}, H)(X', u) +
+    \mathcal{N}(0, 0_{n_x} \oplus R)\)
+    \Comment{Propagate \(X'\) through observation model}
+    \State\Return \((X', Y')\)
+    \Comment{Joint distribution of next state and next output}
+    \EndFunction
+    \Function{Update}{$(X, Y), y$}
+    \State
+    \((X', y) \Longleftarrow\) conditional distribution of \((X,Y)\)
+    given \(Y=y\)
+    \Comment{Apply Bayes' rule}
+    \State\Return \(X'\)
+    \EndFunction
+    \Procedure{Filter}{$u_1, \ldots, u_t, y_1, \ldots, y_t$}
+    \State \(\hat X_{0 \mid 0} \Longleftarrow \mathcal{N}(\mu_0, \Sigma_0)\)
+    \For{$k \in \cbr{1 \ldots t}$}
+    \State \( (\hat X_{k \mid k-1}, \hat Y_{k \mid k-1})
+    \Longleftarrow \textsc{Predict}(\hat X_{k-1 \mid k-1}, u_k) \)
+    \Comment{Solution to problem \ref{problem:prediction}}
+    \State \( \hat X_{k \mid k}  \Longleftarrow \textsc{Update}((\hat
+    X_{k \mid k-1}, \hat Y_{k \mid k-1}), y_k) \)
+    \Comment{Solution to problem \ref{problem:filtering}}
+    \EndFor
+    \EndProcedure
+  \end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+  \caption{
+    \label{alg:rts-smoother}
+    General RTS algorithm for recursive \textbf{smoothing} (problem
+  \ref{problem:smoothing})}
+  \begin{algorithmic}[1]
+    \Require State transition function \(F\)
+    \Require State covariance \(Q\)
+    \Require Uncertainty propagation operator ``\(\Longleftarrow\)''
+    \Function{Predict}{$X, u$}
+    \State
+    \(((X, u), X') \Longleftarrow (\text{id} , F)(X, u) +
+    \mathcal{N}(0, 0 \oplus Q)\)
+    \Comment{Propagate \(X\) through state transition}
+    \State\Return \((X, X')\)
+    \Comment{Joint distribution of current state and next state}
+    \EndFunction
+    \Function{Update}{$(X, X'), X''$}
+    \State
+    \((X, X'') \Longleftarrow\) conditional distribution of
+    \((X,X')\) given \(X' = X''\)
+    \Comment{Apply Bayes' rule}
+    \State\Return \(X\)
+    \EndFunction
+    \Procedure{Smooth}{$u_1, \ldots, u_T, y_1, \ldots, y_T$}
+    \State \(\{\hat X_{k|k}\}_{k=1}^T \Longleftarrow
+    \textsc{Filter}(u_1, \ldots, u_T, y_1, \ldots, y_T)\)
+    \For{$k \in \cbr{T-1 \ldots 0}$}
+    \State \( (\hat X_{k|k}, \hat X_{k+1|k}) \Longleftarrow
+    \textsc{Predict}(\hat X_{k \mid k}, u_{k+1}) \)
+    \State \( \hat X_{k|T} \Longleftarrow \textsc{Update}((\hat
+    X_{k|k}, \hat X_{k+1|k}), \hat X_{k|T}) \)
+    \Comment{Solution to problem \ref{problem:smoothing}}
+    \EndFor
+    \EndProcedure
+  \end{algorithmic}
+\end{algorithm}
+
+In both filtering and smoothing, the operations of \textsc{Predict}
+and \textsc{Update} are implemented as pure functions whose contract
+(input and output) are probability distributions.
+We enforce a functional distinction between \emph{how} uncertain
+belief is generated (using the \(\Longleftarrow\) operator) and
+\emph{what} operations (marginalizing or conditionalizing) are
+carried out on the resulting belief.
+% \footnote{
+This segregation of responsibilities naturally translates to
+idiomatic encapsulation in the object-oriented Python implementation.
+For example, the \textsc{Predict} method reads:
+
+\begin{minipage}{\textwidth}
+\begin{verbatim}
+def predict(self, x: Normal, method="analytic"):
+      """Predicts the next state and output given the current state,
+          using the uncertainty propagation given by `method`"""
+      # predict state
+      x_pred = self.F(x, method=method).add_covariance(self.Q)
+      # predict joint distribution of state and output
+      x_and_y_pred = self.H.augment_with_identity()(
+          x_pred, method=method
+      ).add_covariance(self.R, at=self.OUTPUTS)
+      return x_and_y_pred
+\end{verbatim}
+\end{minipage}
+If \eqref{eq:dynamic-system} is a linear system in state space \((A,
+B, C, D)\) form,
+uncertainty propagation is exact, and all of the random variables are
+jointly Gaussian.
+The \textsc{Predict} function of Alg.~\ref{alg:kalman-filter} would read:
+\begin{algorithmic}
+  \Function{Predict}{$X \sim \mathcal N\del{\hat x, P_{xx}}, u$}
+  \State \(\hat x' \gets A \hat x + B u\)
+  \State \(P_{xx}' \gets A P_{xx} A^\intercal + Q\)
+  \State \(\hat y' \gets C \hat x + D u\)
+  \State \(P_{yy}' \gets C P_{xx}' C^\intercal + R\)
+  \State \(P_{xy}' \gets P_{xx}' C^\intercal\)
+  % \State \Return \((\hat x', \hat y, P_{xx}', P_{yy}, P_{xy})\)
+  \State \Return \(
+    \begin{pmatrix} X' \\ Y'
+    \end{pmatrix} \sim \mathcal N \del{
+      \begin{pmatrix} \hat x' \\ \hat y'
+      \end{pmatrix},
+      \begin{pmatrix} P_{xx}' & P_{xy}' \\ P_{xy}'^\intercal & P_{yy}'
+  \end{pmatrix}}\)
+  \EndFunction
+\end{algorithmic}
+
+\section{Extension to nonlinear systems}
+When \(F\) is a nonlinear function, the pushforward probability law
+of \(F(X, u)\), where \(X \sim \mathcal{N}(\mu, \Sigma)\) and \(u\)
+is deterministic, is not necessarily Gaussian.
+This is a challenging problem for Bayesian inference, because the
+\text{Update} functions of Alg.~\ref{alg:kalman-filter} and
+Alg.~\ref{alg:rts-smoother} can be hard to implement without prior conjugacy.
+Assumed Density Filtering approximates \(F(X)\) (hereafter the
+arguments to \(F\) are lumped together as a single Gaussian variable)
+with a Gaussian distribution:
+\begin{align*}
+  F(X)
+  \approx \mathcal{N}\del{\expect F(X), \Var F(X)}
+\end{align*}
+This distributional approximation can be viewed as maximum entropy
+(forgetting the higher-order moments of \(F(X)\)) or as variational
+inference (minimizing the KL divergence between \(F(X)\) and the
+Gaussian approximation).
+But \(\expect F(X)\) and \(\Var F(X)\) have in general no closed form.
+\begin{itemize}
+  \item Particle Filtering evaluates these moments using Monte Carlo
+    integration.
+    With an unlimited computational budget, it is possible to get
+    arbitrarily close to exactness.
+  \item The Extended Kalman Filter and second-order Extended Kalman
+    Filter evaluate these moments analytically by applying a Taylor
+    expansion to \(F\).
+    These methods fail for highly nonlinear \(F\) that are poorly
+    approximated by local asympototics.
+  \item The Unscented and Cubature Kalman Filters evaluate these
+    moments numerically by approximating the continuous Normal
+    distribution of \(X\) using \(O(n_x)\) point masses.
+    % But these numerical integration schemes struggle with highly
+    % nonlinear \(F\).
+    This amounts to a striking order reduction in light of the fact
+    that the number of points needed for accurate numerical
+    quadrature of a function \(F(X)\) is in general exponential in \(n_x\).
+    This simplification is justified in the case of the Unscented
+    Transform\footnote{cite Uhlmann (1997)} using analytic regularity of \(F\).
+    Thus it stands to reason that reduced-order discretizations of
+    \(X\) struggle to integrate highly nonlinear \(F\).
+\end{itemize}
+
+{\color{red} review pros and cons here? computational complexity,
+point accuracy, and coverage}
+
+In our work, \(F\) and \(H\) are multi-layer neural networks.
+At each layer, we re-impose the variational Gaussian approximation,
+which allows us to calculate the mean and variance of the output
+analytically, as described in the next section.
+
+\chapter{Uncertainty propagation through neural networks}
+Suppose that a function \(f\) is represented by a neural network with
+\(\ell\) layers:
+\begin{subequations}
+  \label{eq:neural-network}
+  \begin{align}
+    f(x) &= f^\ell(x), \\
+    f^k(x) &= g(f^{k-1}(x); A^k, b^k, C^k, d^k), & k \in \cbr{1 \ldots \ell},
+    \label{eq:hidden-layer}
+    \\
+    f^0(x) &= x
+  \end{align}
+\end{subequations}
+Here, \(\{(A^k, b^k, C^k, d^k)\}_{k=1}^\ell\) are parameters,
+\(\sigma\) is a nonlinear activation function, and the layer function is
 \begin{align}
-  x_{t+1} &= F(x_{t}, u_t) + \eta_t \\
-  y_t &= H(x_t, u_t) + \epsilon_t
-  \intertext{
-    where \(F\) and \(H\) are nonlinear functions, \(u_t\) is exogeneous input, and \(\eta_t\) and \(\epsilon_t\) are white noise processes.
-    The vanilla MMSE linear filter (with no simplifications except for the gausssian variational Ansatz of Assumed Density Filtering) has two steps, \textbf{predict}:
-  }
-    % \xi_{t-1} &\sim \mathcal{N}(\hat x_{t-1 \mid t-1}, P^{xx}_{t-1 \mid t-1})
-  % \tag{MaxEnt approximation}
-  % \\
-  \hat x_{t\mid t - 1}
-  &= \expect_{\xi \sim \mathcal{N}(\hat x_{t-1 \mid t-1}, P^{xx}_{t-1 \mid t-1})}
-  F(\xi, u_{t-1})
-  % \tag{mean}
-  \\
-  \hat P^{xx}_{t\mid t - 1}
-  &= \Var_{\xi \sim \mathcal{N}(\hat x_{t-1 \mid t-1}, P^{xx}_{t-1 \mid t-1})}
-  F(\xi, u_{t-1}) + Q
-  \\
-  % \hat 
-  \hat y_{t \mid t-1}
-  &= \expect_{\xi \sim \mathcal{N}(\hat x_{t \mid t-1}, P^{xx}_{t \mid t-1})}
-   H(\hat x_{t \mid t-1}, u_t)
-  \\
-  \hat P^{xy}_{t \mid t-1}
-  &= \Cov_{
-    \xi \sim \mathcal{N}(\hat x_{t \mid t-1}, P^{xx}_{t \mid t-1})
-  }
-   (\xi, H(\hat x_{t \mid t-1}, u_t))
-  \\
-  \hat P^{yy}_{t \mid t-1}
-  &= \Var_{
-    \xi \sim \mathcal{N}(\hat x_{t \mid t-1}, P^{xx}_{t \mid t-1})
-  }
-   H(\xi, u_t)
-   + R
-  \\
-  \intertext{and \textbf{update}:}
-  \hat x_{t \mid t}
-  &= \hat x_{t \mid t-1} + \hat P^{xy}_{t \mid t-1} \del{\hat P^{yy}_{t\mid t-1}}^{-1} (y_t - \hat y_{t \mid t-1})
-  \tag{conditional mean}
-  \\
-  \intertext{(optionally iterate these covariances using \(\hat x_{t\mid t}\))}
-  \hat P^{xx}_{t \mid t}
-  &= \hat P^{xx}_{t \mid t-1} - \hat P^{xy}_{t \mid t-1} \del{\hat P^{yy}_{t\mid t-1}}^{-1} \del{\hat P^{xy}_{t \mid t-1}}^\intercal
-  \tag{conditional covariance}
+  g(x; A, b, C, d) = \sigma(A x+ b) + C x + d.
 \end{align}
 
-The next step is to decide how to compute the first and second moments of \(F(\xi_{t-1}, u_{t})\), which have explicit formulas if \(F\) is linear.
-Otherwise,
-one may approximate \(F\) by its linearization (EKF) or approximate the law of \(\xi_{t-1}\) by a discrete distribution (UKF).
-They have their strengths and weaknesses.
+The uncertainty propagation problem is:
+\begin{problem}
+  Let \(f\) be given by \eqref{eq:neural-network}.
+  Given \(X \sim \mathcal N(\mu, \Sigma)\), find the Normal random
+  variable \(Y\) such that
+  \begin{align*}
+    Y \sim \mathcal N\del{\expect f(X), \Var f(X)}.
+  \end{align*}
+\end{problem}
 
-In this note, I show that if \(F\) is a neural network with one hidden layer, there is an analytic expression for these moments.
-A Gaussian mean and covariance can be propagated analytically through a sigmoid-plus-linear layer.
-After this nonlinear transformation, we impose a variational approximation that the output is Gaussian.
-This approximation can be justified heuristically on the basis of maximum entropy.
-It is plausible to extend this approximation to deep networks.
-
-\chapter{Analytic moments of neural networks}
-Neural networks are compositions of \emph{layers}, where each layer is an affine functions followed by an elementwise nonlinearity.
-They are popular because folk wisdom has found that composition can be a more effective parameterization for function approximation than, say, addition, or interpolation.
-A typical nonlinear layer looks like:
+Our approach is to approximate each hidden layer
+\eqref{eq:hidden-layer} by a Gaussian distribution:
+\begin{subequations}
+  \label{eq:neural-network-gaussian}
+  \begin{align}
+    Y &\Longleftarrow Y^\ell
+    \\
+    Y^k &\Longleftarrow g(Y^{k-1}; A^k, b^k, C^k, d^k), & k \in
+    \cbr{1 \ldots \ell},
+    \label{eq:hidden-layer-gaussian}
+    \\
+    Y^0 &\Longleftarrow X
+  \end{align}
+\end{subequations}
+Now we have reduced the problem to that of Gaussian propagation
+through one hidden layer at a time.
+We have to find the mapping
 \begin{align}
-  f(x; A, b, C, d) &= \sigma(A x + b) + Cx + d
-  \label{eq:layer}
-  \intertext{where \(A, b, C, d\) are learnable parameters, and \(\sigma\) is a nonlinearity.
-  In the rest of this note, I will take \(\sigma = 2\Phi - 1\), where \(\Phi\) is the standard Normal CDF:}
-  \sigma(t) &:= 2\Phi(t) - 1
-  =
-  \sqrt{\frac{2}{\pi}} \int_{0}^t e^{-\frac{1}{2} u^2} du.
+  % Y &\Longleftarrow g(X; A, b, C, d),
+  % \intertext{by which we mean}
+  Y &\approx \mathcal{N}\del{\expect g(X; A, b, C, d), \Var g(X; A, b, C, d)}
 \end{align}
-For ease of notation, I will work out these computations for the case where \(A = a^\intercal\) and \(C=c^\intercal\) are row vectors, and \(b\) and \(d\) are scalars.
-It will be fairly simple to extend row-wise to matrix-valued \(A,b, C, d\).
+in distribution.
 
-\begin{remark}
-  The methods in this note generalize to arbitrary \(\sigma\) as long as there are analytic or numerical (e.g.~polynomial or LUT) approximations to \(\expect \sigma(X) \sigma(Y)\) and \(\expect \sigma (X) Y\) where \(X\) and \(Y\) are jointly Normal.
-  I am only using \(\Phi\) because it lends itself well to closed-form expressions.\footnote{It also depends on what you count as closed form. The 1D normal CDF is a common ``special function.'' But I had to do some work to get a numerical approximation to the bivariate normal CDF.}
-\end{remark}
+\begin{definition}
+  \label{def:moment-maps}
+  Given a nonlinear function \(\sigma: \mathbb{R} \to \mathbb R\),
+  the functions \(M_\sigma: \mathbb{R}  \times \mathbb{R}_+ \to
+  \mathbb{R}\) and \(K_\sigma, L_\sigma: \mathbb{R}^2 \times \mathbb
+  R_+^2 \times [0, 1] \to \mathbb{R}\) are
+  \begin{align*}
+    M_\sigma(\mu; \sigma^2) &= \expect{\sigma(Z)},
+    & Z &\sim \mathcal N(\mu, \sigma^2)
+    \\
+    K_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= \Cov
+    (\sigma(Z_1), \sigma(Z_2)),
+    &
+    \begin{pmatrix}
+      Z_1 \\ Z_2
+    \end{pmatrix} &\sim \mathcal N\del{
+      \begin{pmatrix}
+        \mu_1 \\ \mu_2
+      \end{pmatrix},
+      \begin{pmatrix}
+        \sigma_1^2 & \rho \sigma_1 \sigma_2 \\
+        \rho \sigma_1 \sigma_2 & \sigma_2^2
+      \end{pmatrix}
+    }
+    \\
+    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= \Cov
+    (\sigma(Z_1), Z_2),
+    &
+    \begin{pmatrix}
+      Z_1 \\ Z_2
+    \end{pmatrix} &\sim \mathcal N\del{
+      \begin{pmatrix}
+        \mu_1 \\ \mu_2
+      \end{pmatrix},
+      \begin{pmatrix}
+        \sigma_1^2 & \rho \sigma_1 \sigma_2 \\
+        \rho \sigma_1 \sigma_2 & \sigma_2^2
+      \end{pmatrix}
+    }
+    \\
+  \end{align*}
+\end{definition}
 
+% A consequence of Stein's Lemma is
 
+We can use the trio of functions \(M_\sigma, K_\sigma, L_\sigma\) to
+compute the moments of \(g(X; A, b, C, d)\):
 \begin{lemma}
+  Let \(g\) be the function defined by \(g(x; A, b, C, d) = \sigma(A
+  x+ b) + C x + d.\).
   Let \(X \sim \mathcal N(\mu, \Sigma)\).
-  % and let \(f\) be as in \eqref{eq:layer}.
   Then
   \begin{align*}
-    M(\mu, \Sigma; a, b, c, d) :=
-    \expect f(X; a, b, c, d) &= 
-    \sigma\del{\frac{b + a^\intercal \mu}{\sqrt{1 + a^\intercal \Sigma a}}}
-    + c^\intercal \mu + d
+    \del{\expect g(X; A, b, C, d)}_i &= M_\sigma(\mu_i; \sigma_i^2) +
+    c_{i, *}^\intercal \mu + d_i
+  \end{align*}
+  and
+  \begin{align*}
+    \del{\Var g(X; A, b, C, d)}_{i, j}
+    &= K_\sigma\del{
+      \mu_i, \mu_j; \sigma_i^2, \sigma_j^2, \rho_{ij}
+    }
+    + L_\sigma\del{
+      \mu_i, \mu_j; \sigma_i^2, \sigma_j^2, \rho_{ij}
+    }
+    + \del{
+      \mu_i, \mu_i; \sigma_j^2, \sigma_i^2, \rho_{ij}
+    }
+    + (C^\intercal \Sigma C)_{i, j}.
+    % &= K_\sigma(e_i^\intercal A\mu + e_i^\intercal b, e_j^\intercal
+    % A\mu + e_j^\intercal b, e_i^\intercal A\Sigma A^\intercal e_j,
+    % e_j^\intercal A\Sigma A^\intercal e_i, e_i^\intercal e_j)
+  \end{align*}
+  where
+  \begin{align*}
+    \mu_i &= (A\mu)_i
+    \\
+    \sigma_i^2 &= (A\Sigma A^\intercal)_{i,i}
+    \\
+    \rho_{ij} &= \frac{(A\Sigma A^\intercal)_{i,j}}{\sqrt{(A\Sigma
+    A^\intercal)_{i,i} (A\Sigma A^\intercal)_{j,j}}}
+  \end{align*}
+\end{lemma}
+
+\section{The identity-augmentation operator}
+
+\chapter{Numerical example: Lorenz system}
+\section{Learning the transition mean and variance}
+%profile likelihood
+
+\appendix
+\chapter{Derivation of uncertainty propagation formulas for probit activation}
+In this appendix, we derive the \(M_\sigma\), \(K_\sigma\), and
+\(L_\sigma\) functions (Def~.\ref{def:moment-maps}) for the normal
+CDF activation function
+\begin{align}
+  \sigma(x) &= \sqrt{\frac{2}{\pi}} \int_{0}^x e^{-\frac{1}{2} u^2}
+  du = 2 \Phi(x) - 1, \quad \Phi(x) = \probability_{Z \sim \mathcal
+  N(0, 1)}(Z \leq x)
+  \label{eq:activation}
+\end{align}
+
+\begin{lemma}
+  Let \(M_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation}.
+  \begin{align*}
+    M_\sigma(\mu; \sigma^2) &= \sigma\del{\frac{\mu}{\sqrt{1 + \sigma^2}}}
   \end{align*}
   \label{lem:mean}
 \end{lemma}
 \begin{proof}
-  % In indices.
+  Let \(X \sim \mathcal N(\mu, \sigma^2)\).
   \begin{align}
-    \expect f(X; a, b, c, d)
-    &= -1+2\expect \Phi\del{a^\intercal X + b} + c^\intercal \mu + d
+    \expect \sigma(Z)
+    &= -1+2\expect \Phi\del{X}
     \\
-    &= -1+2\expect \probability \sbr{{Z \leq a^\intercal X + b} \mid X} + c^\intercal \mu + d
+    &= -1+2\expect \probability \sbr{{Z \leq X} \mid X}
     \tag{introducing an independent \(Z \sim \mathcal{N}(0, 1)\)}
     \\
-    &= -1+2\probability\sbr{{Z \leq a^\intercal X + b}} + c^\intercal \mu + d
+    &= -1+2\probability\sbr{{Z \leq X}}
     \tag{by the law of total probability}
     \\
-    &= -1+2\probability \sbr{{Z - a^\intercal X \leq b}} + c^\intercal \mu + d
-    \intertext{The random variable \(Z - a^\intercal X\) has a Normal distribution with mean \(-a^\intercal \mu\) and variance \(1 + a^\intercal \Sigma a\), so}
-    \probability \sbr{\bm{1}_{Z - a^\intercal X \leq b}}
-    &= \Phi\del{\frac{b + a^\intercal \mu}{\sqrt{1 + a^\intercal \Sigma a}}}.
+    &= -1+2\probability \sbr{Z - X \leq 0}
+    % \intertext{, so}
+    % \probability \sbr{\bm{1}_{Z - a^\intercal X \leq b}}
+    % &= \Phi\del{\frac{b + a^\intercal \mu}{\sqrt{1 + a^\intercal \Sigma a}}}.
     % \intertext{In matrix-vector form, we have}
   \end{align}
-  % The conclusion follows from converting back to matrix-vector form with an elementwise nonlinearity.
+  We conclude by noting that the random variable \(Z - X\) has a
+  Normal distribution with mean \(-\mu\) and variance \(1 + \sigma^2\).
+  % The conclusion follows from converting back to matrix-vector form
+  % with an elementwise nonlinearity.
 \end{proof}
 
 \begin{lemma}
-  Let \(X \sim \mathcal N(\mu, \Sigma)\).
-  % and let \(f\) be as in \eqref{eq:layer}.
-  Then
+  Let \(K_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation}.
   \begin{align*}
-    K(\mu, \Sigma; a_1, b_1, c_1, d_1, a_2, b_2, c_2, d_2)
-    &:= \Cov (f(X; a_1, b_1, c_1, d_1), f(X; a_2, b_2, c_2, d_2) )
-    \\
-    \begin{split}
-      &= 
-      4\Phi_2\del{
-        \frac{\mu_1}{\sigma_1},
-        \frac{\mu_2}{\sigma_2};
-        \frac{a_1^\intercal \Sigma a_2}{
-          \sigma_1\sigma_2
-        }
-      } - 4\Phi\del{\frac{\mu_1}{\sigma_1}} \Phi\del{\frac{\mu_1}{\sigma_2}}
-      \\
-      &\quad +
-      2\frac{a_1^\intercal \Sigma c_2} {\sigma_1} 
-      \phi\del{\frac{\mu_1}{\sigma_1}}
-      \\
-      &\quad+
-      2\frac{a_2^\intercal \Sigma c_1}{\sigma_2} 
-      \phi\del{
-        \frac{\mu_2}{\sigma_2} 
-        }
-      \\
-      &\quad
-      +c_1^\intercal \Sigma c_2,
-    \end{split}
-  \intertext{where }
-    \mu_1 &= a_1^\intercal \mu + b_1,
-    \\  
-    \mu_2 &= a_2^\intercal \mu + b_2,
-    \\
-    \sigma_1 &= \sqrt{1 + a_1^\intercal \Sigma a_1},
-    \\
-    \sigma_2 &= \sqrt{1 + a_2^\intercal \Sigma a_2},
-    \\
+    K(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &=
+    4 \left.
+    % \sbr{
+    \Phi_2\del{
+      \frac{\mu_1}{\sqrt{1 + \sigma_1^2}},
+      \frac{\mu_2}{\sqrt{1 + \sigma_2^2}};
+      \rho'
+    }
+    % }
+    \right|^{\rho' = \frac{\rho \sigma_1 \sigma_2}{\sqrt{(1 +
+    \sigma_1^2)(1 + \sigma_2^2)}}}_{\rho' = 0},
   \end{align*}
-  and \(\phi = \Phi'\) and \(\Phi_2(\cdot, \cdot; \rho)\) is the bivariate normal CDF with standard deviation 1 and correlation \(\rho\).
+  where \(\Phi_2\) is the bivariate normal CDF.
 \end{lemma}
 \begin{proof}
-  The constant terms \(-1+d\) can be dropped.
-  Substituting the remaining terms of \(f\), we have
-  % A formula for the covariance of asum reads
-  \begin{multline}
-    \Cov (f(X; a_1, b_1, c_1, d_1), f(X; a_2, b_2, c_2, d_2) )
-    \\
-    =
-    4\underbrace{\Cov(\Phi(a_1^\intercal x + b_1), \Phi(a_2^\intercal x + b_2))}_{K_1} 
-    +2\underbrace{\Cov(\Phi(a_1^\intercal x + b_1), c_2^\intercal x)}_{K_2} 
-    +2\underbrace{\Cov(\Phi(a_2^\intercal x + b_2), c_1^\intercal x)}_{K_3} 
-    +\underbrace{\Cov(c_1^\intercal x, c_2^\intercal x)}_{K_4} 
-  \end{multline}
-  By a similar calculation as in Lemma~\ref{lem:mean}, we introduce \(Z_1, Z_2 \sim \mathcal N(0, 1)\) and have
+  Let \(X_1\) and \(X_2\) be jointly Normal with variances
+  \(\sigma_1^2\) and \(\sigma_2^2\), respectively, and correlation \(\rho\).
+  By a similar calculation as in Lemma~\ref{lem:mean}, we introduce
+  \(Z_1, Z_2 \sim \mathcal N(0, 1)\) and have
   \begin{align}
-    % K_1 &=
-    % \expect \Phi(a_1^\intercal X + b_1) \Phi(a_2^\intercal X + b_2)
-    % - \expect \Phi(a_1^\intercal X + b_1) \expect \Phi(a_2^\intercal X + b_2)
-    % \\
-    % &= 
-    \expect \Phi(a_1^\intercal X + b_1) \Phi(a_2^\intercal X + b_2)
-    &= 
-    \expect \expect\sbr{
-      \bm1_{Z_1 - a_1^\intercal X \leq b_1} \mid X
-    }
-    \expect\sbr{
-      \bm1_{Z_2 - a_2^\intercal X \leq b_2} \mid X
-    }
+    \Cov (\sigma(X_1), \sigma(X_2))
+    &= 4 \Cov (\Phi(X_1), \Phi(X_2))
     \\
-    &= 
-    \expect \expect\sbr{
-      \bm1_{Z_1 - a_1^\intercal X \leq b_1} \bm1_{Z_2 - a_2^\intercal X \leq b_2} \mid X
-    }
+    &= 4\expect \Phi(X_1) \Phi (X_2) - \expect \Phi(X_1) \expect \Phi(X_2)
     \\
-    &= 
-    \probability\sbr{
-      Z_1 - a_1^\intercal X \leq b_1, Z_2 - a_2^\intercal X \leq b_2
-    }
-    \label{eq:joint-prob}
+    &= 4 \probability\sbr{Z_1 \leq X_1, Z_2 \leq X_2} -
+    \probability\sbr{Z_1 \leq X_1} \probability\sbr{Z_2 \leq X_2}
+    \\
+    &= 4 \probability\sbr{Z_1 - X_1 \leq 0, Z_2 - X_2 \leq 0} -
+    \probability\sbr{Z_1- X_1\leq 0} \probability\sbr{Z_2 - X_2 \leq 0}.
   \end{align}
-  Because the random vector \((Z_1 - a_1^\intercal X, Z_2 - a_2^\intercal X)\) has a multivariate normal distribution
+  We conclude by using the fact that \((Z_1 - X_1, Z_2 - X_2)\) is
+  jointly Normal with distribution
   \begin{align}
     \begin{pmatrix}
-      Z_1 - a_1^\intercal X
+      Z_1 - X_1
       \\
-      Z_2 - a_2^\intercal X
+      Z_2 - X_1
     \end{pmatrix}
     \sim
     \mathcal{N}\del{
       \begin{pmatrix}
-        -a_1^\intercal \mu
+        -\mu_1
         \\
-        -a_2^\intercal \mu
+        -\mu_2
       \end{pmatrix},
       \begin{pmatrix}
-        1 + a_1^\intercal \Sigma a_1
+        1 + \sigma_1^2
         &
-        a_1^\intercal \Sigma a_2
+        \rho \sigma_1 \sigma_2
         \\
-        a_2^\intercal \Sigma a_1
+        \rho \sigma_1 \sigma_2
         &
-        1 + a_2^\intercal \Sigma a_2
+        1 + \sigma_2^2
       \end{pmatrix}
-    },
+    }.
   \end{align}
-  the probability \eqref{eq:joint-prob} is
-  \begin{align}
-    \probability\sbr{
-      Z_1 - a_1^\intercal X \leq b_1, Z_2 - a_2^\intercal X \leq b_2
-    }
-    &= \Phi_2\del{
-      \frac{\mu_1}{\sigma_1},
-      \frac{\mu_2}{\sigma_2};
-      \frac{a_1^\intercal \Sigma a_2}{
-        \sigma_1\sigma_2
-      },
-    }
-  \end{align}
-  Thus
-  \begin{align}
-    K_1 &= \expect \Phi(a_1^\intercal X + b_1) \Phi(a_2^\intercal X + b_2) - \expect \Phi(a_1^\intercal X + b_1) \expect \Phi(a_2^\intercal X + b_2) \\
-    &= \Phi_2\del{
-      \frac{\mu_1}{\sigma_1},
-      \frac{\mu_2}{\sigma_2};
-      \frac{a_1^\intercal \Sigma a_2}{
-        \sigma_1\sigma_2
-      }
-    } - \Phi\del{\frac{\mu_1}{\sigma_1}} \Phi\del{\frac{\mu_1}{\sigma_2}}
-  \end{align}
+\end{proof}
+\begin{remark}
+  The bivariate normal CDF can be a difficult transcendental function
+  to evaluate.
+  Many software packages such as SciPy \cite{wagner_kalman_2022}
+  implement the multivariate normal CDF by a (quasi-) Monte Carlo
+  integration over \(\mathbb{R}^n\), which is too expensive for our purposes.
+  Furthermore, the expression \(\Phi(h, k; \rho) - \Phi(h, k; 0)\) is
+  vulnerable to cancellation error for extreme values of \(h\),
+  \(k\), and \(\rho\).
+  To avoid this, we implement \(K\) by 10-point Gaussian quadrature
+  of the one-dimensional proper integral \cite{drezner_computation_1990}
+  \begin{align*}
+    \Phi_2(h, k; \rho) -
+    \Phi_2(h, k; 0)
+    &= \int_0^\rho \partial_\rho' \Phi_2(h, k; \rho') \dif\rho',
+  \end{align*}
+  using
+  \begin{align*}
+    \partial_\rho \Phi_2(h, k; \rho)
+    &= \frac{1}{2\pi \sqrt{1 - \rho^2}} e^{-\frac{1}{2(1 - \rho^2)}
+    \del{h^2 + k^2 - 2 \rho h k}}.
+  \end{align*}
+\end{remark}
 
-  Now to compute \(K_2\).
-  Notice that \((a_1^\intercal x + b, c_2^\intercal x)\) has the same distribution as 
+\begin{lemma}
+  \label{lem:stein}
+  Let \(L_\sigma\) be defined as in Definition \ref{def:moment-maps}.
+  Then
+  \begin{align*}
+    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= \rho
+    \sigma_1 \sigma_2 \expect \sigma'(Z_1),
+    & Z_1 &\sim \mathcal N(\mu_1, \sigma^2_1).
+  \end{align*}
+\end{lemma}
+
+\begin{lemma}
+  Let \(L_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation}.
+  Then
+  \begin{align*}
+    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= 2
+    \frac{\rho \sigma_1 \sigma_2}{\sqrt{1 + \sigma_1^2}}
+  \end{align*}
+\end{lemma}
+\begin{proof}
+  Let \(X_1 \sim \mathcal N(\mu_1, \sigma_1^2)\) and \(X_2 \sim
+  \mathcal N(\mu_2, \sigma_2^2)\) with correlation \(\rho\).
+  Using Lemma \ref{lem:stein}, we have
   \begin{align}
-    \begin{pmatrix}
-      \zeta_1
-      \\
-      \zeta_2
-    \end{pmatrix}
-    \sim
-    \mathcal{N}\del{
-      \begin{pmatrix}
-        a_1^\intercal \mu + b_1
-        \\
-        c_2^\intercal \mu
-      \end{pmatrix},
-      \begin{pmatrix}
-        1 + a_1^\intercal \Sigma a_1
-        &
-        a_1^\intercal \Sigma c_2
-        \\
-        a_1^\intercal \Sigma c_2
-        &
-        1 + c_2^\intercal \Sigma c_2
-      \end{pmatrix}
-    }
-  \end{align}
-  Therefore, by Stein's lemma,
-  \begin{align}
-    \Cov (\Phi(a_1^\intercal x + b_1), c_2^\intercal x)
-    = 
-    \Cov (\Phi(\zeta_1), \zeta_2)
-    &= \Cov\del{\zeta_1, \zeta_2} \expect \phi(\zeta_1)
+    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho)
+    &= \rho \sigma_1 \sigma_2 \expect \sigma'(X_1)
     \\
-    &= 
-    (a_1^\intercal \Sigma c_2) \expect \phi(\zeta_1).
-    \label{eq:K2-intermediate}
+    &= 2\rho \sigma_1 \sigma_2 \expect \phi(X_1)
   \end{align}
-  % where \(\phi = \Phi'\).
-  This latter expectation may be computed using the formula
+  where \(\phi = \Phi'\).
+  We conclude by appealing to the Gaussian integral identity that
+  when \(Z \sim \mathcal N(\mu_Z, \sigma_Z^2)\),
   \begin{align}
-    \expect \phi(Z)
-    &= \frac{1}{\sqrt{1 + \sigma_Z^2}} \phi\del{\frac{\mu_ Z}{\sqrt{1 + \sigma_Z^2}}}
-    % &= \frac{1}{\sigma_1}
-    % \int_\mathbb{R} \phi(\zeta_1) \phi\del{\frac{\zeta_1 - (a_1^\intercal \mu + b_1)}{\sigma_1}} \dif \zeta_1
-    % \\
-    % &= 
-    % \frac{\sqrt{\sigma_1^2 + 1}}{\sigma_1} \phi\del{
-    %   \frac{\sqrt{\sigma_1^2 + 1}}{\sigma_1}
-    %   \del{a_1^\intercal \mu + b_1}
-    % }
-  \end{align}
-  when \(Z \sim \mathcal N(\mu_Z, \sigma_Z^2)\).
-  Combining with \eqref{eq:K2-intermediate} yields
-  \begin{align}
-    K_2
-    &= 
-    \del{a_1^\intercal \Sigma c_2} 
-    \frac{1}{\sqrt{1 + a_1^\intercal \Sigma a_1}} 
-    \phi\del{\frac{\mu_1}{\sqrt{1 + a_1^\intercal \Sigma a_1}}}
-    \intertext{Likewise, with 1s and 2s reversed,}
-    K_3
-    &= 
-    \del{a_2^\intercal \Sigma c_1}
-    \frac{1}{\sqrt{1 + a_2^\intercal \Sigma a_2}} 
-    \phi\del{
-      \frac{\mu_2}{\sqrt{1 + a_2^\intercal \Sigma a_2}} 
-      }
-  \end{align}
-  Finally,
-  \begin{align}
-    K_4 &= c_1^\intercal \Sigma c_2.
+    \expect \Phi(Z) = \frac{1}{\sqrt{1 + \sigma^2_Z}}
+    \phi\del{\frac{\mu_Z}{\sqrt{1 + \sigma^2_Z}}}.
   \end{align}
 \end{proof}
 
@@ -366,15 +617,23 @@ defined by
   y = \del{f_4 \circ f_3 \circ f_2 \circ f_1}(x)
 \end{align}
 where all the intermediate layers have 10 neurons.
-The figure on the next page shows Monte Carlo results (100,000 repetitions) for \(\alpha \in (0.01, 1, 100)\):
+The figure on the next page shows Monte Carlo results (100,000
+repetitions) for \(\alpha \in (0.01, 1, 100)\):
 \begin{description}
-  \item[empirical KDE]  is a kernel density estimate of the true distribution of \(y\)
-  \item[pseudo-true Gaussian fit] is a Gaussian PDF parameterized by the sample mean and variance of \(y\)
-  \item[unscented approximation] is the Unscented Transform applied to \(\del{f_4 \circ f_3 \circ f_2 \circ f_1}\) with untuned default settings.
-  \item[linear approximation] is a small-variance delta method formula similar to what EKF uses
-  \item[my approximation] is my formula applied to Gaussian re-approximations at the output of each layer.
+  \item[empirical KDE]  is a kernel density estimate of the true
+    distribution of \(y\)
+  \item[pseudo-true Gaussian fit] is a Gaussian PDF parameterized by
+    the sample mean and variance of \(y\)
+  \item[unscented approximation] is the Unscented Transform applied
+    to \(\del{f_4 \circ f_3 \circ f_2 \circ f_1}\) with untuned
+    default settings.
+  \item[linear approximation] is a small-variance delta method
+    formula similar to what EKF uses
+  \item[my approximation] is my formula applied to Gaussian
+    re-approximations at the output of each layer.
 \end{description}
-The goodness of approximation at \(\alpha=100\) suggests that my formula might be good for high-\(Q\) nonlinear filtering applications.
+The goodness of approximation at \(\alpha=100\) suggests that my
+formula might be good for high-\(Q\) nonlinear filtering applications.
 
 % \begin{figure*}
 \clearpage
@@ -383,4 +642,4 @@ The goodness of approximation at \(\alpha=100\) suggests that my formula might b
 % \end{figure*}
 \bibliographystyle{abbrv}
 \bibliography{nn-filtering}
-\end{document} 
+\end{document}
