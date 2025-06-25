@@ -433,10 +433,90 @@ compute the moments of \(g(X; A, b, C, d)\):
 \section{The identity-augmentation operator}
 
 \chapter{Numerical example: Lorenz system}
-\section{Learning the transition mean and variance}
-%profile likelihood
+solver \cite{kidger_neural_2021}, programming system
+\cite{kidger_equinox_2021,bradbury_jax_2018}, stochastic integrator
+\cite{foster_high_2023}
+
+\section{Parameterization and training}
+In order to learn the constant-covariance generative model from a
+training set \(\{x_t\}_{t =0}^{T_\text{train}}\),
+we learn the neural network coefficients \(\theta\) and process
+covariance simultaneously by maximizing the profile likelihood:
+\begin{align}
+  \begin{split}
+    &\min_{\theta, Q}
+    \quad
+    \log \det Q
+    \\
+    &\text{subject to}
+    \quad
+    \begin{matrix}
+      Q = \frac{1}{n} \sum_{t = 1}^{T_\text{train}} \epsilon_t
+      \epsilon_t^\intercal\\
+      \epsilon_t = x_t - F(x_{t-1}, u_t; \theta)
+    \end{matrix}
+  \end{split}
+\end{align}
+using the Optax optimization library \cite{deepmind_deepmind_2020}
+with the AdamW optimizer \cite{loshchilov_decoupled_2019}.
 
 \appendix
+\chapter{Computational complexity}
+Rather than reporting runtime, which is highly sensitive to hardware
+and implementation, we use JAX ahead-of-time compilation to describe
+computational complexity along three axes: input-ouput operations,
+floating point operations, and transcendental functions.
+Comparisons for filtering are shown in
+Table~\ref{tab:complexity-predict} and \ref{tab:complexity-update}.
+Comparisons for smoothing are shown in Table~\ref{tab:complexity-smooth}.
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Method & I/Os & FLOPs \\
+    \midrule
+    Analytic & 15\,341\,086 & 25\,269\,848 \\
+    Linear & 3\,221\,686 & 14\,943\,866 \\
+    Unscented & 469\,652 & 784\,107 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Computational complexity of Filtering \textsc{Predict}}
+  \label{tab:complexity-predict}
+\end{table}
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrrr}
+    \toprule
+    Method & Recalibrate \cite{jiang_new_2025} & I/Os & FLOPs \\
+    \midrule
+    Analytic & True & 10\,896 & 3\,608 \\
+    Linear & True & 4\,488 & 1\,288 \\
+    Unscented & True & 9\,595 & 4\,839 \\
+    All & False & 393 & 24 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Computational complexity of Filtering \textsc{Update}}
+  \label{tab:complexity-update}
+\end{table}
+
+\begin{table}
+  \centering
+  \begin{tabular}{lrr}
+    \toprule
+    Method & I/Os & FLOPs \\
+    \midrule
+    Analytic & 16\,309\,000 & 27\,591\,520 \\
+    Linear & 3\,447\,040 & 16\,380\,598 \\
+    Unscented & 499\,283 & 833\,194 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Computational complexity of Smoothing \textsc{Predict}
+  followed by \textsc{Update}}
+  \label{tab:complexity-smooth}
+\end{table}
+
 \chapter{Derivation of uncertainty propagation formulas for probit activation}
 In this appendix, we derive the \(M_\sigma\), \(K_\sigma\), and
 \(L_\sigma\) functions (Def~.\ref{def:moment-maps}) for the normal
