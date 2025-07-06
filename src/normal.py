@@ -39,7 +39,10 @@ class Normal(equinox.Module):
         )
 
     def pdf(self, x):
-        return scipy.stats.multivariate_normal.pdf(x, mean=self.μ, cov=self.Σ)
+        return jax.scipy.stats.multivariate_normal.pdf(x, mean=self.μ, cov=self.Σ)
+
+    def lpdf(self, x):
+        return jax.scipy.stats.multivariate_normal.logpdf(x, mean=self.μ, cov=self.Σ)
 
     @staticmethod
     def independent(*normals: "Normal") -> "Normal":

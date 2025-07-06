@@ -16,18 +16,21 @@ class KalmanDiagnostics(equinox.Module):
     diagnostic_times: slice = slice(1, None)
 
     def point_rmse(self, state_trajectory: typing.List[normal.Normal]):
-        return (
-            np.mean(
-                [
-                    (z.μ[self.kalman_filter.STATES] - x) ** 2
-                    for z, x in zip(
-                        state_trajectory[self.diagnostic_times],
-                        self.x[self.diagnostic_times],
-                    )
-                ]
-            )
-            ** 0.5
+        residuals = self._residuals(state_trajectory)
+        return np.mean([residual**2 for residual in residuals]) ** 0.5
+
+    def _residuals(self, state_trajectory):
+        for z, x in zip(
+            state_trajectory[self.diagnostic_times], self.x[self.diagnostic_times]
+        ):
+            yield z.μ[self.kalman_filter.STATES] - x
+
+    def point_geometric_error(self, state_trajectory):
+        residuals = self._residuals(state_trajectory)
+        outer_product_mean = np.mean(
+            [np.outer(residual, residual) for residual in residuals], axis=0
         )
+        return np.linalg.det(outer_product_mean) ** (1 / self.kalman_filter.n_x)
 
     def calculate_coverage(self, predictions: typing.List[normal.Normal]):
         x_pred_χ2 = [

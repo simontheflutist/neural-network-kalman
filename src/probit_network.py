@@ -203,11 +203,11 @@ class ProbitLinear(equinox.Module):
             d=d_new,
         )
 
-    def _augment_with_sum(self, w_size):
+    def _augment_with_sum(self, w_size, dtype=int):
         """Returns the network that computes (w, x) -> (w + f(x)) where f is this network"""
-        A_new = jnp.hstack([jnp.zeros((w_size, w_size), dtype=int), self.A])
+        A_new = jnp.hstack([jnp.zeros((w_size, w_size), dtype=dtype), self.A])
         b_new = self.b
-        C_new = jnp.hstack([jnp.eye(w_size, dtype=int), self.C])
+        C_new = jnp.hstack([jnp.eye(w_size, dtype=dtype), self.C])
         d_new = self.d
         return ProbitLinear(
             in_size=self.in_size + w_size,
@@ -218,14 +218,14 @@ class ProbitLinear(equinox.Module):
             d=d_new,
         )
 
-    def _direct_sum_with_identity(self, x_size):
+    def _direct_sum_with_identity(self, x_size, dtype=int):
         """Returns the network that computes (x, y) -> (x, f(y)) where f is this network"""
         A_new = jax.scipy.linalg.block_diag(
-            jnp.zeros((x_size, x_size), dtype=int), self.A
+            jnp.zeros((x_size, x_size), dtype=dtype), self.A
         )
-        b_new = jnp.hstack([jnp.zeros(x_size, dtype=int), self.b])
-        C_new = jax.scipy.linalg.block_diag(jnp.eye(x_size, dtype=int), self.C)
-        d_new = jnp.hstack([jnp.zeros(x_size, dtype=int), self.d])
+        b_new = jnp.hstack([jnp.zeros(x_size, dtype=dtype), self.b])
+        C_new = jax.scipy.linalg.block_diag(jnp.eye(x_size, dtype=dtype), self.C)
+        d_new = jnp.hstack([jnp.zeros(x_size, dtype=dtype), self.d])
         return ProbitLinear(
             in_size=x_size + self.in_size,
             out_size=x_size + self.out_size,
@@ -291,6 +291,14 @@ class ProbitLinearNetwork(equinox.Module):
         if method == "unscented":
             μ, Σ = unscented_transform(self, x.μ, x.Σ)
             x = normal.Normal(μ, Σ)
+        elif method == "linear":
+            μ = x.μ
+            for layer in self.layers:
+                μ = layer(μ, method=method)
+            jac = jax.jacobian(self.__call__)(x.μ)
+            Σ = jac @ x.Σ @ jac.T
+            x = normal.Normal(μ, Σ)
+        # case that method==analytic or x is an array (no uncertainty)
         else:
             for layer in self.layers:
                 x = layer(x, method=method)
@@ -305,10 +313,10 @@ class ProbitLinearNetwork(equinox.Module):
             new_layers.append(layer._direct_sum_with_identity(self.in_size))
         return ProbitLinearNetwork(*new_layers)
 
-    def augment_with_sum(self, w_size):
+    def augment_with_sum(self, w_size, dtype=int):
         """Returns the network that computes (w, x) -> (w + f(x)) where f is this network"""
         new_layers = []
         for layer in self.layers[:-1]:
-            new_layers.append(layer._direct_sum_with_identity(w_size))
-        new_layers.append(self.layers[-1]._augment_with_sum(w_size))
+            new_layers.append(layer._direct_sum_with_identity(w_size, dtype=dtype))
+        new_layers.append(self.layers[-1]._augment_with_sum(w_size, dtype=dtype))
         return ProbitLinearNetwork(*new_layers)
