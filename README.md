@@ -1,35 +1,18 @@
-# Neural Network Kalman Filtering (AI summary of docs/nn-filtering.pdf)
+# Neural Network Kalman Filtering
+This project deals with Gaussian filtering and smoothing of dynamic systems described by
 
-This repository focuses on the application of neural networks in the context of nonlinear Kalman filtering, smoothing, and prediction. The main highlights of the work include the following:
+$$\begin{align}
+x_{t} &= F(x_{t-1}, u_{t}) + \epsilon_t\\
+y_t &= H(x_t, u_t) + \eta_t
+\end{align}
+$$
+where $F$ and $H$ are deep neural networks consisting of layers
+$$
+f(x; A, b, C, d) = \sigma(Ax + b) + Cx + d.
+$$
 
-## Overview
-
-The document introduces a general Kalman filter algorithm for recursive prediction and filtering, as well as a general RTS smoother algorithm for recursive smoothing. The approach is motivated by Bayesian principles and aims to unify different types of nonlinear Kalman filters.
-
-## Algorithms
-
-- **Kalman Filter**: A recursive algorithm for prediction and filtering, which is presented in a stylized manner to emphasize its Bayesian motivation.
-- **RTS Smoother**: An algorithm for recursive smoothing, which builds upon the Kalman filter output.
-
-## Mathematical Framework
-
-- **State Dynamics**: Described using a highly stylized notation to depict stochastic processes and their realizations.
-- **Uncertainty Propagation**: Emphasizes the propagation of uncertainty using specific operators and the distinction between marginalizing and conditionalizing operations.
-
-## Computational Complexity
-
-The document reports on computational complexity using JAX ahead-of-time compilation, focusing on input-output operations and floating-point operations. Comparisons are provided for filtering and smoothing methods.
-
-## Numerical Example
-
-- **Stochastic Lorenz System**: A nonlinear Kalman filtering application on a discretization of the stochastic Lorenz system is demonstrated.
-- **Parameterization and Training**: The neural network architecture consists of four hidden layers, with specific configurations for constant-covariance generative models.
-
-## Results
-
-Monte Carlo simulations are performed to evaluate filtering and smoothing performance, using various methods and baselining against a dynamic model with stationary distribution predictions.
-
-This repository is an exploration of advanced filtering techniques using neural networks, providing insights into both theoretical and practical aspects of nonlinear stochastic systems. For more details, please refer to the original document and accompanying code.
+By taking $\sigma(x) = 2 \Phi(x) - 1$, we can compute the mean and covariance of $f(x)$ exactly.
+Details in `docs/nn-filtering.pdf`.
 
 # Library (AI summary of `src/`)
 
