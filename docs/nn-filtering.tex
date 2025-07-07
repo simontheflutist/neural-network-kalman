@@ -831,6 +831,7 @@ The key idea is that the error induced by Normal approximation gets worse with e
 % Then \(Y_0^1\) is a less Normal than \(Y_0^0\), and so on.
 % Thus, roughly speaking, the approximation error in distribution should, by a triangle inequality, scale rougly linearly in the depth of the network.
 
+\subsection{Recursive triangle inequality}
 Our basic triangle inequality is
 \begin{align}
   \Delta^k &:= d_\mathrm{W}(Y_0^k, Y^k) 
@@ -858,21 +859,59 @@ In words, at a hidden layer \(k\),
 \end{multline}
 If \(X\) is Gaussian, then \(\Delta^0 = 0\).
 We need to fill two blanks to make this formula concrete.
-First, the Lipschitz constant \(\left\|\nabla g^k\right\|_\infty\):
+
+\subsection{Lipschitz constant}
+First, the Lipschitz constant \(\left\|\nabla g^k\right\|_\infty\), assuming our convention of \(\sigma = 2\Phi - 1\) as in \eqref{eq:activation}:
 \begin{align}
   \nabla g(x; A, b, C, d)
   &= \nabla \sbr{\sigma(A x + b) + C x +  d}
   \\
-  \intertext{using \(\sigma = 2\Phi - 1\) as in \eqref{eq:activation},}
-  &\leq \left\|A\right\| + \left\|C\right\|.
+  % &\leq \left\|A\right\| + \left\|C\right\|.
+  &= 2A^\intercal \operatorname{diag} \cbr{\phi(Ax + b)} + C^\intercal
+  \intertext{To bound this quantity,}
+  \left\|\nabla g(x; A, b, C, d)
+  \right\|
+  &\leq \sup_{x} \left\|2 A^\intercal \operatorname{diag} \cbr{\phi(Ax + b)} + C^\intercal\right\|
+  \\
+  &\leq \sqrt{\frac{2}{\pi}} \left\|A\right\|
+  + \left\|C\right\|
 \end{align}
-(Can this be improved to \(\left\|A + C\right\|\)?)
+% For less conservatism, it would 
+% Suppose that \(A\) has \(m\) rows and \(n\) columns.
+% \begin{align}
+%   \begin{split}
+%     % \MoveEqLeft
+%   \sup_{x} \left\|2 A^\intercal \operatorname{diag} \cbr{\phi(Ax + b)} + C^\intercal\right\|^2
+%   \\
+%   &\leq
+%   \sup_{\xi \in [0, \sqrt{2/\pi}]^m} 
+%   \left\|
+%     2 A^\intercal \operatorname{diag}(\xi) + C^\intercal
+%   \right\|^2
+%   \end{split}
+%   \\
+%   &\leq
+%   \sup_{\omega \in \mathbb R^n, \|\omega\| = 1} \sup_{\xi \in [0, \sqrt{2/\pi}]^m} 
+%   \left\|
+%     2 \omega^\intercal A^\intercal \operatorname{diag}(\xi) + \omega^\intercal C^\intercal
+%   \right\|^2
+%   \\
+%   &\leq
+%   \sup_{\omega \in \mathbb R^n, \|\omega\| = 1} \sup_{\xi \in [0, \sqrt{2/\pi}]^m} 
+%   \left\|
+%     2 \omega^\intercal A^\intercal \operatorname{diag}(\xi) + \omega^\intercal C^\intercal
+%   \right\|^2
+%   \\
+% \end{align}
 
+
+\subsection{Non-normality}
 Second, we need to bound the distance between \(g^k(Y^{k-1})\) and \(Y^k\).
-The importance of the recursion \eqref{eq:discrepancy-recursion} is that at layer \(k\), the Normal approximation error term is compares \(g^k(Y^{k-1})\) to \(Y^k\).
+The importance of the recursion \eqref{eq:discrepancy-recursion} is that at layer \(k\), we assess the Normal approximation between \(g^k(Y^{k-1})\), a nonlinear transformation of a Normal random vector, and \(Y^k\), its approximant.
+The input to the nonlinearity is Normal.
 Since \(Y^{k-1}\) is Normal, we can use techniques from the functional analysis of Gaussian spaces, such as this second-order Poincar\'e inequality:
 \begin{theorem}[Second-order Poincar\'e inequality {\cite[Theorem~7.1]{nourdin_second_2009}}]
-Suppose that \(Y = f(X)\) is a random vector taking values in \(\mathbb{R}^n\), where \(X\) is a Gaussian random vector, and that \(Y\) has mean \(\mu\) and covariance matrix \(\Sigma\).
+Suppose that \(Y = f(X)\) is a random vector taking values in \(\mathbb{R}^n\), where \(X\) is a standard Normal random vector, and that \(Y\) has mean \(\mu\) and covariance matrix \(\Sigma\).
 Then
 \begin{align*}
   d_\mathrm{W}\del{Y, \mathcal N(\mu, \Sigma)}
