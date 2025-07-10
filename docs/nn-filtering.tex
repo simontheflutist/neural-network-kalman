@@ -31,11 +31,15 @@ hyperref, cancel, bm}
 \DeclareMathOperator{\Var}{\operatorname{Var}}
 \DeclareMathOperator{\Cov}{\operatorname{Cov}}
 \begin{document}
-Analytic filtering for single-layer RBF dynamics:
-\cite{deisenroth_analytic_2009}
+% Analytic filtering for single-layer RBF dynamics:
+% \cite{deisenroth_analytic_2009}
 
 \chapter{Notation}
 The vector \(e_i\) has a 1 in the \(i\)th place and zeros everywhere else.
+
+When \(\sigma:\mathbb R \to \mathbb R\) is a neural network activation function, \(\sigma (x)\) for \(x \in \mathbb{R}^n\) is applied elementwise.
+
+The variance-covariance matrix of a random vector \(X\) is \(\Var X = \expect(X - \expect X)(X - \expect X)^\intercal\).
 
 We use a highly stylized notation to depict state dynamics.
 Lowercase letters \(\{x_t\}\) refer to a realization of a stochastic process.
@@ -350,10 +354,10 @@ in distribution.
   \mathbb{R}\) and \(K_\sigma, L_\sigma: \mathbb{R}^2 \times \mathbb
   R_+^2 \times [0, 1] \to \mathbb{R}\) are
   \begin{align*}
-    M_\sigma(\mu; \sigma^2) &= \expect{\sigma(Z)},
-    & Z &\sim \mathcal N(\mu, \sigma^2)
+    M_\sigma(\mu; \nu^2) &= \expect{\sigma(Z)},
+    & Z &\sim \mathcal N(\mu, \nu^2)
     \\
-    K_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= \Cov
+    K_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \Cov
     (\sigma(Z_1), \sigma(Z_2)),
     &
     \begin{pmatrix}
@@ -363,12 +367,12 @@ in distribution.
         \mu_1 \\ \mu_2
       \end{pmatrix},
       \begin{pmatrix}
-        \sigma_1^2 & \rho \sigma_1 \sigma_2 \\
-        \rho \sigma_1 \sigma_2 & \sigma_2^2
+        \nu_1^2 & \rho \nu_1 \nu_2 \\
+        \rho \nu_1 \nu_2 & \nu_2^2
       \end{pmatrix}
     }
     \\
-    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= \Cov
+    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \Cov
     (\sigma(Z_1), Z_2),
     &
     \begin{pmatrix}
@@ -378,8 +382,8 @@ in distribution.
         \mu_1 \\ \mu_2
       \end{pmatrix},
       \begin{pmatrix}
-        \sigma_1^2 & \rho \sigma_1 \sigma_2 \\
-        \rho \sigma_1 \sigma_2 & \sigma_2^2
+        \nu_1^2 & \rho \nu_1 \nu_2 \\
+        \rho \nu_1 \nu_2 & \nu_2^2
       \end{pmatrix}
     }
     \\
@@ -392,7 +396,7 @@ We can use the trio of functions \(M_\sigma, K_\sigma, L_\sigma\) to
 compute the moments of \(g(X; A, b, C, d)\):
 \begin{lemma}
   Let \(g\) be the function defined by \(g(x; A, b, C, d) = \sigma(A
-  x+ b) + C x + d.\).
+  x+ b) + C x + d\).
   Let \(X \sim \mathcal N(\mu, \Sigma)\).
   Then
   \begin{align*}
@@ -408,8 +412,8 @@ compute the moments of \(g(X; A, b, C, d)\):
     + L_\sigma\del{
       \mu_i, \mu_j; \sigma_i^2, \sigma_j^2, \rho_{ij}
     }
-    + \del{
-      \mu_i, \mu_i; \sigma_j^2, \sigma_i^2, \rho_{ij}
+    + L_\sigma\del{
+      \mu_j, \mu_i; \sigma_j^2, \sigma_i^2, \rho_{ij}
     }
     + (C^\intercal \Sigma C)_{i, j}.
     % &= K_\sigma(e_i^\intercal A\mu + e_i^\intercal b, e_j^\intercal
@@ -640,12 +644,12 @@ CDF activation function
   Let \(M_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
   \(\sigma\) as in \eqref{eq:activation}.
   \begin{align*}
-    M_\sigma(\mu; \sigma^2) &= \sigma\del{\frac{\mu}{\sqrt{1 + \sigma^2}}}
+    M_\sigma(\mu; \nu^2) &= \sigma\del{\frac{\mu}{\sqrt{1 + \nu^2}}}
   \end{align*}
   \label{lem:mean}
 \end{lemma}
 \begin{proof}
-  Let \(X \sim \mathcal N(\mu, \sigma^2)\).
+  Let \(X \sim \mathcal N(\mu, \nu^2)\).
   \begin{align}
     \expect \sigma(Z)
     &= -1+2\expect \Phi\del{X}
@@ -657,38 +661,32 @@ CDF activation function
     \tag{by the law of total probability}
     \\
     &= -1+2\probability \sbr{Z - X \leq 0}
-    % \intertext{, so}
-    % \probability \sbr{\bm{1}_{Z - a^\intercal X \leq b}}
-    % &= \Phi\del{\frac{b + a^\intercal \mu}{\sqrt{1 + a^\intercal \Sigma a}}}.
-    % \intertext{In matrix-vector form, we have}
   \end{align}
   We conclude by noting that the random variable \(Z - X\) has a
-  Normal distribution with mean \(-\mu\) and variance \(1 + \sigma^2\).
-  % The conclusion follows from converting back to matrix-vector form
-  % with an elementwise nonlinearity.
+  Normal distribution with mean \(-\mu\) and variance \(1 + \nu^2\).
 \end{proof}
 
 \begin{lemma}
   Let \(K_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
   \(\sigma\) as in \eqref{eq:activation}.
   \begin{align*}
-    K(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &=
+    K(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &=
     4 \left.
     % \sbr{
     \Phi_2\del{
-      \frac{\mu_1}{\sqrt{1 + \sigma_1^2}},
-      \frac{\mu_2}{\sqrt{1 + \sigma_2^2}};
+      \frac{\mu_1}{\sqrt{1 + \nu_1^2}},
+      \frac{\mu_2}{\sqrt{1 + \nu_2^2}};
       \rho'
     }
     % }
-    \right|^{\rho' = \frac{\rho \sigma_1 \sigma_2}{\sqrt{(1 +
-    \sigma_1^2)(1 + \sigma_2^2)}}}_{\rho' = 0},
+    \right|^{\rho' = \frac{\rho \nu_1 \nu_2}{\sqrt{(1 +
+    \nu_1^2)(1 + \nu_2^2)}}}_{\rho' = 0},
   \end{align*}
   where \(\Phi_2\) is the bivariate normal CDF.
 \end{lemma}
 \begin{proof}
   Let \(X_1\) and \(X_2\) be jointly Normal with variances
-  \(\sigma_1^2\) and \(\sigma_2^2\), respectively, and correlation \(\rho\).
+  \(\nu_1^2\) and \(\nu_2^2\), respectively, and correlation \(\rho\).
   By a similar calculation as in Lemma~\ref{lem:mean}, we introduce
   \(Z_1, Z_2 \sim \mathcal N(0, 1)\) and have
   \begin{align}
@@ -719,13 +717,13 @@ CDF activation function
         -\mu_2
       \end{pmatrix},
       \begin{pmatrix}
-        1 + \sigma_1^2
+        1 + \nu_1^2
         &
-        \rho \sigma_1 \sigma_2
+        \rho \nu_1 \nu_2
         \\
-        \rho \sigma_1 \sigma_2
+        \rho \nu_1 \nu_2
         &
-        1 + \sigma_2^2
+        1 + \nu_2^2
       \end{pmatrix}
     }.
   \end{align}
@@ -759,9 +757,9 @@ CDF activation function
   Let \(L_\sigma\) be defined as in Definition \ref{def:moment-maps}.
   Then
   \begin{align*}
-    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= \rho
-    \sigma_1 \sigma_2 \expect \sigma'(Z_1),
-    & Z_1 &\sim \mathcal N(\mu_1, \sigma^2_1).
+    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \rho
+    \nu_1 \nu_2 \expect \sigma'(Z_1),
+    & Z_1 &\sim \mathcal N(\mu_1, \nu^2_1).
   \end{align*}
 \end{lemma}
 
@@ -770,26 +768,26 @@ CDF activation function
   \(\sigma\) as in \eqref{eq:activation}.
   Then
   \begin{align*}
-    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho) &= 2
-    \frac{\rho \sigma_1 \sigma_2}{\sqrt{1 + \sigma_1^2}}
+    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= 2
+    \frac{\rho \nu_1 \nu_2}{\sqrt{1 + \nu_1^2}}
   \end{align*}
 \end{lemma}
 \begin{proof}
-  Let \(X_1 \sim \mathcal N(\mu_1, \sigma_1^2)\) and \(X_2 \sim
-  \mathcal N(\mu_2, \sigma_2^2)\) with correlation \(\rho\).
+  Let \(X_1 \sim \mathcal N(\mu_1, \nu_1^2)\) and \(X_2 \sim
+  \mathcal N(\mu_2, \nu_2^2)\) with correlation \(\rho\).
   Using Lemma \ref{lem:stein}, we have
   \begin{align}
-    L_\sigma(\mu_1, \mu_2; \sigma_1^2, \sigma_2^2, \rho)
-    &= \rho \sigma_1 \sigma_2 \expect \sigma'(X_1)
+    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho)
+    &= \rho \nu_1 \nu_2 \expect \sigma'(X_1)
     \\
-    &= 2\rho \sigma_1 \sigma_2 \expect \phi(X_1)
+    &= 2\rho \nu_1 \nu_2 \expect \phi(X_1)
   \end{align}
   where \(\phi = \Phi'\).
   We conclude by appealing to the Gaussian integral identity that
-  when \(Z \sim \mathcal N(\mu_Z, \sigma_Z^2)\),
+  when \(Z \sim \mathcal N(\mu_Z, \nu_Z^2)\),
   \begin{align}
-    \expect \Phi(Z) = \frac{1}{\sqrt{1 + \sigma^2_Z}}
-    \phi\del{\frac{\mu_Z}{\sqrt{1 + \sigma^2_Z}}}.
+    \expect \Phi(Z) = \frac{1}{\sqrt{1 + \nu^2_Z}}
+    \phi\del{\frac{\mu_Z}{\sqrt{1 + \nu^2_Z}}}.
   \end{align}
 \end{proof}
 
