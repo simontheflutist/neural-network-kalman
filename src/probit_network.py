@@ -1,5 +1,5 @@
 import typing
-
+import abc
 import equinox
 import jax
 import numpy as np
@@ -46,6 +46,42 @@ def Φ_2_increment_quad(h, k, ρ, num_points=10):
     nodes, weights = gauss_legendre_on_0_x(num_points, ρ)
     integrand_values = jax.vmap(dΦ_2__dρ, in_axes=(0, None, None))(nodes, h, k)
     return weights @ integrand_values
+
+
+class Activation(equinox.Module):
+    @abc.abstractmethod
+    def __call__(self, x):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def M(self, mean, var):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def K(self, mean_1, mean_2, var_1, var_2, covariance):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def L(self, mean_1, mean_2, var_1, var_2, covariance):
+        raise NotImplementedError
+
+
+class NormalCDF(Activation):
+    def __call__(self, x):
+        return 2 * Φ(x) - 1
+
+    def M(self, mean, var):
+        return self.__call__(mean / (1 + var) ** 0.5)
+
+    def K(self, mean_1, mean_2, var_1, var_2, covariance):
+        return 4 * Φ_2_increment_quad(
+            mean_1 / (1 + var_1) ** 0.5,
+            mean_2 / (1 + var_2) ** 0.5,
+            covariance / ((1 + var_1) ** 0.5 * (1 + var_2) ** 0.5),
+        )
+
+    def L(self, mean_1, mean_2, var_1, var_2, covariance):
+        return 2 * covariance * (1 + var_1) ** (-0.5) * ϕ(mean_1 / (1 + var_1) ** 0.5)
 
 
 def σ(x):
@@ -141,13 +177,15 @@ class ProbitLinear(equinox.Module):
 
     @equinox.filter_jit
     def __call__(
-        self, x: typing.Union[np.array, jnp.array, normal.Normal], method=None
+        self, x: typing.Union[np.array, jnp.array, normal.Normal], old=None, method=None
     ):
         if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
             return jax.vmap(σ)(self.A @ x + self.b) + self.C @ x + self.d
         elif isinstance(x, normal.Normal):
             if method == "analytic":
-                μ, Σ = self._propagate_mean(x.μ, x.Σ), self._propagate_cov(x.μ, x.Σ)
+                μ, Σ = self._propagate_mean(x.μ, x.Σ, old), self._propagate_cov(
+                    x.μ, x.Σ, old
+                )
             elif method == "linear":
                 μ, Σ = self._propagate_mean_lin(x.μ, x.Σ), self._propagate_cov_lin(
                     x.μ, x.Σ
@@ -159,19 +197,86 @@ class ProbitLinear(equinox.Module):
             return normal.Normal(μ, Σ)
         raise NotImplementedError
 
-    def _propagate_mean(self, μ, Σ):
-        return jax.vmap(_M, in_axes=(None, None, 0, 0, 0, 0))(
-            μ, Σ, self.A, self.b, self.C, self.d
+    def _propagate_mean(self, μ, Σ, old):
+        if old:
+            return jax.vmap(_M, in_axes=(None, None, 0, 0, 0, 0))(
+                μ, Σ, self.A, self.b, self.C, self.d
+            )
+
+        activation = NormalCDF()
+        return (
+            jax.vmap(activation.M)(self.A @ μ + self.b, jnp.diag(self.A @ Σ @ self.A.T))
+            + self.C @ μ
+            + self.d
         )
 
-    def _propagate_cov(self, μ, Σ, rectify=True):
-        last_four_axes = (*((None,) * (2 + 3)), *((0,) * 3))
-        middle_four_axes = (*((None,) * 2), *((0,) * 3), *((None,) * 3))
+    def _propagate_cov(self, μ, Σ, old):
+        if old:
+            last_four_axes = (*((None,) * (2 + 3)), *((0,) * 3))
+            middle_four_axes = (*((None,) * 2), *((0,) * 3), *((None,) * 3))
 
-        result = jax.vmap(
-            jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes
-        )(μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C)
-        return result
+            result = jax.vmap(
+                jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes
+            )(μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C)
+            return result
+
+        activation = NormalCDF()
+
+        # \mu_i and \sigma_i in the notes
+        activation_mean = self.A @ μ + self.b
+        activation_cov = self.A @ Σ @ self.A.T
+        # \bar \mu_i and \bar \sigma_i in the notes
+        linear_mean = self.C @ μ + self.d
+        linear_cov = self.C @ Σ @ self.C.T
+
+        # repeat into matrices
+        activation_mean_grid = jnp.tile(activation_mean, (self.out_size, 1))
+        activation_var_grid = jnp.tile(jnp.diag(activation_cov), (self.out_size, 1))
+        # activation_corr = activation_cov * (
+        #     activation_var_grid * activation_var_grid.T
+        # ) ** (-0.5)
+
+        linear_mean_grid = jnp.tile(linear_mean, (self.out_size, 1))
+        linear_var_grid = jnp.tile(jnp.diag(linear_cov), (self.out_size, 1))
+        # linear_corr = linear_cov * (linear_var_grid * linear_var_grid.T) ** (-0.5)
+
+        cross_cov = self.A @ Σ @ self.C.T
+
+        # compute the K term
+        K_term = jax.vmap(jax.vmap(activation.K))(
+            activation_mean_grid,
+            activation_mean_grid.T,
+            activation_var_grid,
+            activation_var_grid.T,
+            activation_cov,
+        )
+
+        # compute the L term
+        L_term_1 = jax.vmap(jax.vmap(activation.L))(
+            activation_mean_grid,
+            linear_mean_grid.T,
+            activation_var_grid,
+            linear_var_grid.T,
+            cross_cov.T,
+        )
+        L_term_2 = jax.vmap(jax.vmap(activation.L))(
+            activation_mean_grid.T,
+            linear_mean_grid,
+            activation_var_grid.T,
+            linear_var_grid,
+            cross_cov,
+        )
+
+        # compute the linear part
+        # linear_part =
+        return K_term + L_term_1 + L_term_2 + self.C @ Σ @ self.C.T
+        # last_four_axes = (*((None,) * (2 + 3)), *((0,) * 3))
+        # middle_four_axes = (*((None,) * 2), *((0,) * 3), *((None,) * 3))
+
+        # result = jax.vmap(
+        #     jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes
+        # )(μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C)
+        # return result
 
     def _propagate_mean_lin(self, μ, Σ):
         return self(μ)
@@ -287,6 +392,7 @@ class ProbitLinearNetwork(equinox.Module):
         x: typing.Union[np.array, jnp.array, normal.Normal],
         method="analytic",
         rectify=False,
+        old=0,
     ):
         if method == "unscented":
             μ, Σ = unscented_transform(self, x.μ, x.Σ)
@@ -301,7 +407,7 @@ class ProbitLinearNetwork(equinox.Module):
         # case that method==analytic or x is an array (no uncertainty)
         else:
             for layer in self.layers:
-                x = layer(x, method=method)
+                x = layer(x, method=method, old=old)
         if rectify:
             x = x.rectify()
         return x
