@@ -100,6 +100,16 @@ class Normal(equinox.Module):
     def rectify(self):
         return Normal(self.μ, rectify_eigenvalues(self.Σ))
 
+    @equinox.filter_jit
+    def kl_divergence(self, other: "Normal") -> float:
+        """Compute the Kullback-Leibler divergence D(other || self)."""
+        trace = jnp.trace(jnp.linalg.solve(self.Σ, other.Σ))
+        log_det = jnp.log(jnp.linalg.det(self.Σ) / jnp.linalg.det(other.Σ))
+        mean_diff = self.μ - other.μ
+        return 0.5 * (
+            trace + log_det + mean_diff.T @ jnp.linalg.solve(self.Σ, mean_diff) - self.n
+        )
+
 
 @equinox.filter_jit
 def schur_complement(A, B, C, x, y):
