@@ -1,111 +1,14 @@
 import typing
-import abc
+
 import equinox
 import jax
 import numpy as np
 from jax import numpy as jnp
-from jax.scipy.stats.norm import cdf as Φ
-from jax.scipy.stats.norm import pdf as ϕ
 
 import normal
+from activation import Activation, NormalCDF
 from random_matrix import RandomMatrixFactory, ZeroMatrix
 from unscented import unscented_transform
-
-
-def gauss_legendre_on_0_x(n, x):
-    """
-    Generate Gauss-Legendre quadrature nodes and weights for the interval [0, x].
-
-    Parameters:
-    - n: int, number of quadrature points
-    - x: float, right endpoint of the interval [0, x]
-
-    Returns:
-    - nodes: ndarray, transformed quadrature nodes in [0, x]
-    - weights: ndarray, transformed quadrature weights
-    """
-    # Get nodes and weights for [-1, 1]
-    nodes, weights = np.polynomial.legendre.leggauss(n)
-
-    # Affine transformation from [-1, 1] to [0, x]
-    nodes_transformed = 0.5 * (nodes + 1) * x
-    weights_transformed = 0.5 * x * weights
-
-    return nodes_transformed, weights_transformed
-
-
-def dΦ_2__dρ(ρ, h, k):
-    numerator = jnp.exp(-(h**2 - 2 * ρ * h * k + k**2) / (2 * (1 - ρ**2)))
-    denominator = 2 * jnp.pi * jnp.sqrt(1 - ρ**2)
-    return numerator / denominator
-
-
-@equinox.filter_jit
-def Φ_2_increment_quad(h, k, ρ, num_points=10):
-    """https://www.tandfonline.com/doi/epdf/10.1080/00949659008811236"""
-    nodes, weights = gauss_legendre_on_0_x(num_points, ρ)
-    integrand_values = jax.vmap(dΦ_2__dρ, in_axes=(0, None, None))(nodes, h, k)
-    return weights @ integrand_values
-
-
-class Activation(equinox.Module):
-    @abc.abstractmethod
-    def __call__(self, x):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def M(self, mean, var):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def K(self, mean_1, mean_2, var_1, var_2, covariance):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def L(self, mean_1, mean_2, var_1, var_2, covariance):
-        raise NotImplementedError
-
-
-class NormalCDF(Activation):
-    def __call__(self, x):
-        return 2 * Φ(x) - 1
-
-    def M(self, mean, var):
-        return self.__call__(mean / (1 + var) ** 0.5)
-
-    def K(self, mean_1, mean_2, var_1, var_2, covariance):
-        return 4 * Φ_2_increment_quad(
-            mean_1 / (1 + var_1) ** 0.5,
-            mean_2 / (1 + var_2) ** 0.5,
-            covariance / ((1 + var_1) ** 0.5 * (1 + var_2) ** 0.5),
-        )
-
-    def L(self, mean_1, mean_2, var_1, var_2, covariance):
-        return 2 * covariance * (1 + var_1) ** (-0.5) * ϕ(mean_1 / (1 + var_1) ** 0.5)
-
-
-def σ(x):
-    return 2.0 * Φ(x) - 1.0
-
-
-def _M(μ, Σ, a, b, c, d):
-    return σ((b + a @ μ) * (1 + a @ Σ @ a) ** (-0.5)) + c @ μ + d
-
-
-def _K(μ, Σ, a_1, b_1, c_1, a_2, b_2, c_2):
-    μ_1 = a_1 @ μ + b_1
-    μ_2 = a_2 @ μ + b_2
-    σ_1 = (1 + a_1 @ Σ @ a_1) ** 0.5
-    σ_2 = (1 + a_2 @ Σ @ a_2) ** 0.5
-    ρ = (a_1 @ Σ @ a_2) / (σ_1 * σ_2)
-
-    term_Φ_Φ = 4 * Φ_2_increment_quad(μ_1 / σ_1, μ_2 / σ_2, ρ)
-    term_a_c = 2 * (a_1 @ Σ @ c_2) / σ_1 * ϕ(μ_1 / σ_1)
-    term_c_a = 2 * (a_2 @ Σ @ c_1) / σ_2 * ϕ(μ_2 / σ_2)
-
-    term_c_c = c_1 @ Σ @ c_2
-
-    return term_Φ_Φ + term_a_c + term_c_a + term_c_c
 
 
 class ProbitLinear(equinox.Module):
@@ -115,6 +18,8 @@ class ProbitLinear(equinox.Module):
     d: jax.Array
     in_size: int
     out_size: int
+
+    activation: Activation
 
     def __init__(
         self,
@@ -126,6 +31,7 @@ class ProbitLinear(equinox.Module):
         C=ZeroMatrix(),
         d=ZeroMatrix(),
     ):
+        self.activation = NormalCDF()
         self.in_size = in_size
         self.out_size = out_size
 
@@ -177,15 +83,13 @@ class ProbitLinear(equinox.Module):
 
     @equinox.filter_jit
     def __call__(
-        self, x: typing.Union[np.array, jnp.array, normal.Normal], old=None, method=None
+        self, x: typing.Union[np.array, jnp.array, normal.Normal], method=None
     ):
         if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
-            return jax.vmap(σ)(self.A @ x + self.b) + self.C @ x + self.d
+            return jax.vmap(self.activation)(self.A @ x + self.b) + self.C @ x + self.d
         elif isinstance(x, normal.Normal):
             if method == "analytic":
-                μ, Σ = self._propagate_mean(x.μ, x.Σ, old), self._propagate_cov(
-                    x.μ, x.Σ, old
-                )
+                μ, Σ = self._propagate_mean(x.μ, x.Σ), self._propagate_cov(x.μ, x.Σ)
             elif method == "linear":
                 μ, Σ = self._propagate_mean_lin(x.μ, x.Σ), self._propagate_cov_lin(
                     x.μ, x.Σ
@@ -197,31 +101,16 @@ class ProbitLinear(equinox.Module):
             return normal.Normal(μ, Σ)
         raise NotImplementedError
 
-    def _propagate_mean(self, μ, Σ, old):
-        if old:
-            return jax.vmap(_M, in_axes=(None, None, 0, 0, 0, 0))(
-                μ, Σ, self.A, self.b, self.C, self.d
-            )
-
-        activation = NormalCDF()
+    def _propagate_mean(self, μ, Σ):
         return (
-            jax.vmap(activation.M)(self.A @ μ + self.b, jnp.diag(self.A @ Σ @ self.A.T))
+            jax.vmap(self.activation.M)(
+                self.A @ μ + self.b, jnp.diag(self.A @ Σ @ self.A.T)
+            )
             + self.C @ μ
             + self.d
         )
 
-    def _propagate_cov(self, μ, Σ, old):
-        if old:
-            last_four_axes = (*((None,) * (2 + 3)), *((0,) * 3))
-            middle_four_axes = (*((None,) * 2), *((0,) * 3), *((None,) * 3))
-
-            result = jax.vmap(
-                jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes
-            )(μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C)
-            return result
-
-        activation = NormalCDF()
-
+    def _propagate_cov(self, μ, Σ):
         # \mu_i and \sigma_i in the notes
         activation_mean = self.A @ μ + self.b
         activation_cov = self.A @ Σ @ self.A.T
@@ -243,7 +132,7 @@ class ProbitLinear(equinox.Module):
         cross_cov = self.A @ Σ @ self.C.T
 
         # compute the K term
-        K_term = jax.vmap(jax.vmap(activation.K))(
+        K_term = jax.vmap(jax.vmap(self.activation.K))(
             activation_mean_grid,
             activation_mean_grid.T,
             activation_var_grid,
@@ -252,14 +141,14 @@ class ProbitLinear(equinox.Module):
         )
 
         # compute the L term
-        L_term_1 = jax.vmap(jax.vmap(activation.L))(
+        L_term_1 = jax.vmap(jax.vmap(self.activation.L))(
             activation_mean_grid,
             linear_mean_grid.T,
             activation_var_grid,
             linear_var_grid.T,
             cross_cov.T,
         )
-        L_term_2 = jax.vmap(jax.vmap(activation.L))(
+        L_term_2 = jax.vmap(jax.vmap(self.activation.L))(
             activation_mean_grid.T,
             linear_mean_grid,
             activation_var_grid.T,
@@ -267,16 +156,7 @@ class ProbitLinear(equinox.Module):
             cross_cov,
         )
 
-        # compute the linear part
-        # linear_part =
         return K_term + L_term_1 + L_term_2 + self.C @ Σ @ self.C.T
-        # last_four_axes = (*((None,) * (2 + 3)), *((0,) * 3))
-        # middle_four_axes = (*((None,) * 2), *((0,) * 3), *((None,) * 3))
-
-        # result = jax.vmap(
-        #     jax.vmap(_K, in_axes=middle_four_axes), in_axes=last_four_axes
-        # )(μ, Σ, self.A, self.b, self.C, self.A, self.b, self.C)
-        # return result
 
     def _propagate_mean_lin(self, μ, Σ):
         return self(μ)
@@ -392,7 +272,6 @@ class ProbitLinearNetwork(equinox.Module):
         x: typing.Union[np.array, jnp.array, normal.Normal],
         method="analytic",
         rectify=False,
-        old=0,
     ):
         if method == "unscented":
             μ, Σ = unscented_transform(self, x.μ, x.Σ)
@@ -407,7 +286,7 @@ class ProbitLinearNetwork(equinox.Module):
         # case that method==analytic or x is an array (no uncertainty)
         else:
             for layer in self.layers:
-                x = layer(x, method=method, old=old)
+                x = layer(x, method=method)
         if rectify:
             x = x.rectify()
         return x
