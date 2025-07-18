@@ -1,18 +1,17 @@
 import equinox
-import jax
 from jax import numpy as jnp
 
+from network import Network
 from normal import Normal
-from probit_network import ProbitLinearNetwork
 
 
 class NeuralKalmanFilter(equinox.Module):
     n_x: int
     n_u: int
     n_y: int
-    F: ProbitLinearNetwork
-    F_aug: ProbitLinearNetwork
-    H_aug: ProbitLinearNetwork
+    F: Network
+    F_aug: Network
+    H_aug: Network
     Q: jnp.ndarray
     R: jnp.ndarray
     STATES: slice

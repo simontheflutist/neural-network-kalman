@@ -26,6 +26,45 @@ class Activation(equinox.Module):
         raise NotImplementedError
 
 
+class Zero(Activation):
+    def __call__(self, x):
+        return 0
+
+    def M(self, mean, var):
+        return 0
+
+    def K(self, mean_1, mean_2, var_1, var_2, covariance):
+        return 0
+
+    def L(self, mean_1, mean_2, var_1, var_2, covariance):
+        return 0
+
+
+class Sinusoid(Activation):
+    def __call__(self, x):
+        return jnp.sin(x)
+
+    def M(self, mean, var):
+        return jnp.exp(-var / 2) * jnp.sin(mean)
+
+    def K(self, mean_1, mean_2, var_1, var_2, covariance):
+        var_ = -(var_1 + var_2) / 2
+        term_1 = (
+            0.5
+            * (jnp.exp(var_ + covariance) - jnp.exp(var_))
+            * jnp.cos(mean_1 - mean_2)
+        )
+        term_2 = (
+            0.5
+            * (jnp.exp(var_ - covariance) - jnp.exp(var_))
+            * jnp.cos(mean_1 + mean_2)
+        )
+        return term_1 - term_2
+
+    def L(self, mean_1, mean_2, var_1, var_2, covariance):
+        return covariance * jnp.exp(-var_1 / 2) * jnp.cos(mean_1)
+
+
 class NormalCDF(Activation):
     def __call__(self, x):
         return 2 * Φ(x) - 1

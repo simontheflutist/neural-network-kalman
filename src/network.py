@@ -6,12 +6,12 @@ import numpy as np
 from jax import numpy as jnp
 
 import normal
-from activation import Activation, NormalCDF
+from activation import Activation, Zero
 from random_matrix import RandomMatrixFactory, ZeroMatrix
 from unscented import unscented_transform
 
 
-class ProbitLinear(equinox.Module):
+class Layer(equinox.Module):
     A: jax.Array
     b: jax.Array
     C: jax.Array
@@ -25,13 +25,14 @@ class ProbitLinear(equinox.Module):
         self,
         in_size,
         out_size,
+        activation,
         key=jax.random.PRNGKey(0),
         A=ZeroMatrix(),
         b=ZeroMatrix(),
         C=ZeroMatrix(),
         d=ZeroMatrix(),
     ):
-        self.activation = NormalCDF()
+        self.activation = activation
         self.in_size = in_size
         self.out_size = out_size
 
@@ -50,7 +51,7 @@ class ProbitLinear(equinox.Module):
         self.d = d.build(keys[3], out_size) if isinstance(d, RandomMatrixFactory) else d
 
     @classmethod
-    def create_probit(self, in_size, out_size, key=None, A=None, b=None):
+    def create_nonlinear(self, in_size, out_size, activation, key=None, A=None, b=None):
         if key is not None:
             keys = jax.random.split(key, 2)
             A = A.build(keys[0], (out_size, in_size))
@@ -58,10 +59,10 @@ class ProbitLinear(equinox.Module):
         # int type stops gradient
         C = jnp.zeros((out_size, in_size), dtype=int)
         d = jnp.zeros(out_size, dtype=int)
-        return ProbitLinear(in_size, out_size, A=A, b=b, C=C, d=d)
+        return Layer(in_size, out_size, activation, A=A, b=b, C=C, d=d)
 
     @classmethod
-    def create_residual(self, in_size, out_size, key=None, A=None, b=None):
+    def create_residual(self, in_size, out_size, activation, key=None, A=None, b=None):
         if key is not None:
             keys = jax.random.split(key, 2)
             A = A.build(keys[0], (out_size, in_size))
@@ -69,7 +70,7 @@ class ProbitLinear(equinox.Module):
         # int type stops gradient
         C = jnp.eye(out_size, dtype=int)
         d = jnp.zeros(out_size, dtype=int)
-        return ProbitLinear(in_size, out_size, A=A, b=b, C=C, d=d)
+        return Layer(in_size, out_size, activation, A=A, b=b, C=C, d=d)
 
     @classmethod
     def create_linear(self, in_size, out_size, key=None, C=None, d=None):
@@ -79,7 +80,7 @@ class ProbitLinear(equinox.Module):
             d = d.build(keys[1], out_size)
         A = jnp.zeros((out_size, in_size), dtype=int)
         b = jnp.zeros(out_size, dtype=int)
-        return ProbitLinear(in_size, out_size, A=A, b=b, C=C, d=d)
+        return Layer(in_size, out_size, Zero(), A=A, b=b, C=C, d=d)
 
     @equinox.filter_jit
     def __call__(
@@ -179,9 +180,10 @@ class ProbitLinear(equinox.Module):
         b_new = jnp.hstack([jnp.zeros(self.in_size, dtype=int), self.b])
         C_new = jnp.vstack([jnp.eye(self.in_size, dtype=int), self.C])
         d_new = jnp.hstack([jnp.zeros(self.in_size, dtype=int), self.d])
-        return ProbitLinear(
+        return Layer(
             in_size=self.in_size,
             out_size=self.in_size + self.out_size,
+            activation=self.activation,
             A=A_new,
             b=b_new,
             C=C_new,
@@ -194,9 +196,10 @@ class ProbitLinear(equinox.Module):
         b_new = self.b
         C_new = jnp.hstack([jnp.eye(w_size, dtype=dtype), self.C])
         d_new = self.d
-        return ProbitLinear(
+        return Layer(
             in_size=self.in_size + w_size,
             out_size=self.out_size,
+            activation=self.activation,
             A=A_new,
             b=b_new,
             C=C_new,
@@ -211,9 +214,10 @@ class ProbitLinear(equinox.Module):
         b_new = jnp.hstack([jnp.zeros(x_size, dtype=dtype), self.b])
         C_new = jax.scipy.linalg.block_diag(jnp.eye(x_size, dtype=dtype), self.C)
         d_new = jnp.hstack([jnp.zeros(x_size, dtype=dtype), self.d])
-        return ProbitLinear(
+        return Layer(
             in_size=x_size + self.in_size,
             out_size=x_size + self.out_size,
+            activation=self.activation,
             A=A_new,
             b=b_new,
             C=C_new,
@@ -242,9 +246,10 @@ class ProbitLinear(equinox.Module):
             if equinox.is_inexact_array(self.d)
             else self.d
         )
-        return ProbitLinear(
+        return Layer(
             in_size=self.in_size,
             out_size=self.out_size,
+            activation=self.activation,
             A=A_new,
             b=b_new,
             C=C_new,
@@ -252,8 +257,8 @@ class ProbitLinear(equinox.Module):
         )
 
 
-class ProbitLinearNetwork(equinox.Module):
-    layers: typing.List[ProbitLinear]
+class Network(equinox.Module):
+    layers: typing.List[Layer]
     in_size: int
     out_size: int
 
@@ -296,7 +301,7 @@ class ProbitLinearNetwork(equinox.Module):
         new_layers = [self.layers[0]._augment_with_identity()]
         for layer in self.layers[1:]:
             new_layers.append(layer._direct_sum_with_identity(self.in_size))
-        return ProbitLinearNetwork(*new_layers)
+        return Network(*new_layers)
 
     def augment_with_sum(self, w_size, dtype=int):
         """Returns the network that computes (w, x) -> (w + f(x)) where f is this network"""
@@ -304,4 +309,4 @@ class ProbitLinearNetwork(equinox.Module):
         for layer in self.layers[:-1]:
             new_layers.append(layer._direct_sum_with_identity(w_size, dtype=dtype))
         new_layers.append(self.layers[-1]._augment_with_sum(w_size, dtype=dtype))
-        return ProbitLinearNetwork(*new_layers)
+        return Network(*new_layers)

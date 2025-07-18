@@ -354,41 +354,53 @@ in distribution.
   \mathbb{R}\) and \(K_\sigma, L_\sigma: \mathbb{R}^2 \times \mathbb
   R_+^2 \times [0, 1] \to \mathbb{R}\) are
   \begin{align*}
-    M_\sigma(\mu; \nu^2) &= \expect{\sigma(Z)},
-    & Z &\sim \mathcal N(\mu, \nu^2)
+    M_\sigma(\mu; \nu) &= \expect{\sigma(X)},
+    & X &\sim \mathcal N(\mu, \nu)
     \\
-    K_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \Cov
-    (\sigma(Z_1), \sigma(Z_2)),
+    K_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12}) &= \Cov
+    (\sigma(X_1), \sigma(X_2)),
     &
     \begin{pmatrix}
-      Z_1 \\ Z_2
+      X_1 \\ X_2
     \end{pmatrix} &\sim \mathcal N\del{
       \begin{pmatrix}
         \mu_1 \\ \mu_2
       \end{pmatrix},
       \begin{pmatrix}
-        \nu_1^2 & \rho \nu_1 \nu_2 \\
-        \rho \nu_1 \nu_2 & \nu_2^2
+        \nu_{11} & \nu_{12} \\
+        \nu_{12} & \nu_{22}
       \end{pmatrix}
     }
     \\
-    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \Cov
-    (\sigma(Z_1), Z_2),
+    L_\sigma(\mu_1; \nu_{11}, \nu_{22}, \nu_{12}) &= \Cov
+    (\sigma(X_1), X_2),
     &
     \begin{pmatrix}
-      Z_1 \\ Z_2
+      X_1 \\ X_2
     \end{pmatrix} &\sim \mathcal N\del{
       \begin{pmatrix}
-        \mu_1 \\ \mu_2
+        \mu_1 \\ \star
       \end{pmatrix},
       \begin{pmatrix}
-        \nu_1^2 & \rho \nu_1 \nu_2 \\
-        \rho \nu_1 \nu_2 & \nu_2^2
+        \nu_{11} & \nu_{12} \\
+        \nu_{12} & \nu_{22}
       \end{pmatrix}
     }
     \\
   \end{align*}
 \end{definition}
+
+When \(\sigma\) is differentiable, \(L_\sigma\) can be computed using:
+\begin{lemma}[Stein's lemma]
+  \label{lem:stein}
+  Let \(L_\sigma\) be defined as in Definition \ref{def:moment-maps}.
+  Then
+  \begin{align*}
+    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \rho
+    \nu_1 \nu_2 \expect \sigma'(Z_1),
+    & Z_1 &\sim \mathcal N(\mu_1, \nu^2_1).
+  \end{align*}
+\end{lemma}
 
 % A consequence of Stein's Lemma is
 
@@ -400,22 +412,22 @@ compute the moments of \(g(X; A, b, C, d)\):
   Let \(X \sim \mathcal N(\mu, \Sigma)\).
   Then
   \begin{align*}
-    \del{\expect g(X; A, b, C, d)}_i &= M_\sigma(\mu_i; \sigma_i^2) +
+    \del{\expect g(X; A, b, C, d)}_i &= M_\sigma(\mu_i; \nu_{ii}) +
     (C\mu)_i + d_i
   \end{align*}
   and
   \begin{align*}
     \del{\Var g(X; A, b, C, d)}_{i, j}
     &= K_\sigma\del{
-      \mu_i, \mu_j; \sigma_i^2, \sigma_j^2, \rho_{ij}
+      \mu_i, \mu_j; \nu_{ii}, \nu_{jj}, \nu_{ij}
     }
     + L_\sigma\del{
-      \mu_i, \bar \mu_j; \sigma_i^2, \bar \sigma_j^2, \kappa_{ij}
+      \mu_i; \nu_{ii}, \tau_{jj},\kappa_{ij}
     }
     + L_\sigma\del{
-      \mu_j, \bar \mu_i; \sigma_j^2, \bar \sigma_i^2, \kappa_{ji}
+      \mu_j; \nu_{jj}, \tau_{ii},\kappa_{ji}
     }
-    + (C^\intercal \Sigma C)_{i, j}.
+    + \tau_{ij}.
     % &= K_\sigma(e_i^\intercal A\mu + e_i^\intercal b, e_j^\intercal
     % A\mu + e_j^\intercal b, e_i^\intercal A\Sigma A^\intercal e_j,
     % e_j^\intercal A\Sigma A^\intercal e_i, e_i^\intercal e_j)
@@ -424,26 +436,17 @@ compute the moments of \(g(X; A, b, C, d)\):
   \begin{align*}
     \mu_i &= (A\mu + b)_i
     &
-    \bar \mu_i &= (C\mu + d)_i
+    \tau_{ij}
+    &= (C\Sigma C^\intercal)_{i,j}
     \\
-    \sigma_i^2 &= (A\Sigma A^\intercal)_{i,i}
-    &
-    \bar \sigma_i^2
-    &= (C\Sigma C^\intercal)_{i,i}
-    \\
-    \rho_{ij} &= \frac{(A\Sigma A^\intercal)_{i,j}}{\sqrt{(A\Sigma
-    A^\intercal)_{i,i} (A\Sigma A^\intercal)_{j,j}}}
+    \nu_{ij} &= (A\Sigma A^\intercal)_{i,j}
     &
     \kappa_{ij}
-    &= \frac{
-      (A \Sigma C^\intercal)_{i,j}
-    }{
-      \sqrt{
-        (A\Sigma A^\intercal)_{i,i} (C\Sigma C^\intercal)_{j,j}
-      }
-    }
+    &= (A \Sigma C^\intercal)_{i,j}
   \end{align*}
 \end{lemma}
+
+% WIP: propagate function contract of Lemma 1 into later work. finish validating nonlinear KF
 
 \section{The identity-augmentation operator}
 Algorithms \ref{alg:kalman-filter} and \ref{alg:rts-smoother}
@@ -654,16 +657,30 @@ CDF activation function
   \label{eq:activation}
 \end{align}
 
+\begin{definition}
+  The bivariate normal CDF \(\Phi_2\) is defined by
+  \begin{align*}
+    \Phi_2(h, k; \rho)
+    &= \probability\sbr{Z_1 \leq h, Z_2\leq k},
+    \intertext{where}
+    \begin{pmatrix}
+      Z_1 \\ Z_2
+    \end{pmatrix}
+    &\sim \mathcal N\del{\begin{pmatrix} 0 \\ 0 \end{pmatrix}, \begin{pmatrix}
+      1 & \rho \\ \rho & 1
+    \end{pmatrix}}.
+  \end{align*}
+\end{definition}
 \begin{lemma}
   Let \(M_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
   \(\sigma\) as in \eqref{eq:activation}.
   \begin{align*}
-    M_\sigma(\mu; \nu^2) &= \sigma\del{\frac{\mu}{\sqrt{1 + \nu^2}}}
+    M_\sigma(\mu; \nu) &= \sigma\del{\frac{\mu}{\sqrt{1 + \nu}}}
   \end{align*}
   \label{lem:mean}
 \end{lemma}
 \begin{proof}
-  Let \(X \sim \mathcal N(\mu, \nu^2)\).
+  Let \(X \sim \mathcal N(\mu, \nu)\).
   \begin{align}
     \expect \sigma(X)
     &= -1+2\expect \Phi\del{X}
@@ -684,24 +701,40 @@ CDF activation function
   Let \(K_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
   \(\sigma\) as in \eqref{eq:activation}.
   \begin{align*}
-    K(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &=
+    K(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12}) &=
     4 \left.
     % \sbr{
     \Phi_2\del{
-      \frac{\mu_1}{\sqrt{1 + \nu_1^2}},
-      \frac{\mu_2}{\sqrt{1 + \nu_2^2}};
+      \frac{\mu_1}{\sqrt{1 + \nu_{11}}},
+      \frac{\mu_2}{\sqrt{1 + \nu_{22}}};
       \rho'
     }
     % }
-    \right|^{\rho' = \frac{\rho \nu_1 \nu_2}{\sqrt{(1 +
-    \nu_1^2)(1 + \nu_2^2)}}}_{\rho' = 0},
+    \right|^{\rho' = \frac{\nu_{12}}{\sqrt{(1 +
+    \nu_{11})(1 + \nu_{22})}}}_{\rho' = 0},
   \end{align*}
   where \(\Phi_2\) is the bivariate normal CDF.
 \end{lemma}
 \begin{proof}
-  Let \(X_1\) and \(X_2\) be jointly Normal with variances
-  \(\nu_1^2\) and \(\nu_2^2\), respectively, and correlation \(\rho\).
-  By a similar calculation as in Lemma~\ref{lem:mean}, we introduce
+  Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
+  By a similar calculation as in Lemma~\ref{lem:mean}, we introduce independent
   \(Z_1, Z_2 \sim \mathcal N(0, 1)\) and have
   \begin{align}
     \Cov (\sigma(X_1), \sigma(X_2))
@@ -731,13 +764,13 @@ CDF activation function
         -\mu_2
       \end{pmatrix},
       \begin{pmatrix}
-        1 + \nu_1^2
+        1 + \nu_{11}
         &
-        \rho \nu_1 \nu_2
+        \nu_{12}
         \\
-        \rho \nu_1 \nu_2
+        \nu_{12}
         &
-        1 + \nu_2^2
+        1 + \nu_{22}
       \end{pmatrix}
     }.
   \end{align}
@@ -766,44 +799,178 @@ CDF activation function
   \end{align*}
 \end{remark}
 
-\begin{lemma}[Stein's lemma]
-  \label{lem:stein}
-  Let \(L_\sigma\) be defined as in Definition \ref{def:moment-maps}.
-  Then
-  \begin{align*}
-    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \rho
-    \nu_1 \nu_2 \expect \sigma'(Z_1),
-    & Z_1 &\sim \mathcal N(\mu_1, \nu^2_1).
-  \end{align*}
-\end{lemma}
+
 
 \begin{lemma}
   Let \(L_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
   \(\sigma\) as in \eqref{eq:activation}.
   Then
   \begin{align*}
-    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= 2
-    \frac{\rho \nu_1 \nu_2}{\sqrt{1 + \nu_1^2}}
-    \phi\del{\frac{\mu_1}{\sqrt{1 + \nu^2_1}}}.
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12}) &= 2
+    \frac{\nu_{12}}{\sqrt{1 + \nu_{11}}}
+    \phi\del{\frac{\mu_1}{\sqrt{1 + \nu_{11}}}}.
   \end{align*}
 \end{lemma}
 \begin{proof}
-  Let \(X_1 \sim \mathcal N(\mu_1, \nu_1^2)\) and \(X_2 \sim
-  \mathcal N(\mu_2, \nu_2^2)\) with correlation \(\rho\).
+   Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
   Using Lemma \ref{lem:stein}, we have
   \begin{align}
-    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho)
-    &= \rho \nu_1 \nu_2 \expect \sigma'(X_1)
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12})
+    &= \nu_{12} \expect \sigma'(X_1)
     \\
-    &= 2\rho \nu_1 \nu_2 \expect \phi(X_1)
+    &= 2\nu_{12} \expect \phi(X_1)
   \end{align}
   where \(\phi = \Phi'\).
   We conclude by appealing to the Gaussian integral identity that
-  when \(Z \sim \mathcal N(\mu_Z, \nu_Z^2)\),
+  when \(Z \sim \mathcal N(\mu_Z, \nu_Z)\),
   \begin{align}
-    \expect \phi(Z) = \frac{1}{\sqrt{1 + \nu^2_Z}}
-    \phi\del{\frac{\mu_Z}{\sqrt{1 + \nu^2_Z}}}.
+    \expect \phi(Z) = \frac{1}{\sqrt{1 + \nu_Z}}
+    \phi\del{\frac{\mu_Z}{\sqrt{1 + \nu_Z}}}.
   \end{align}
+\end{proof}
+
+
+\chapter{Derivation of uncertainty propagation formulas for sinusoidal activation}
+In this appendix, we derive the \(M_\sigma\), \(K_\sigma\) and
+\(L_\sigma\) functions (Def.~\ref{def:moment-maps}) for the sinusoidal activation function
+\begin{align}
+  \label{eq:activation-sin}
+  \sigma(x) &= \sin(x).
+\end{align}
+We begin by recalling the identities that if \(Z \sim \mathcal N(\mu, \nu)\),
+\begin{align}
+\label{eq:expect-sin}
+  \expect \sin(Z) &= e^{-\nu/2} \sin(\mu)
+  \\
+  \label{eq:expect-cos}
+  \expect \cos(Z) &= e^{-\nu/2} \cos(\mu)
+\end{align}
+
+From \eqref{eq:expect-sin} immediately follows:
+\begin{lemma}
+  Let \(M_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation-sin}.
+  Then
+  \begin{align*}
+    M_\sigma(\mu; \nu) &= e^{-\nu/2}\sin(\mu).
+  \end{align*}
+\end{lemma}
+
+\begin{lemma}
+  Let \(K_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation-sin}.
+  Then
+  \begin{align*}
+    K_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12})
+    &= \frac{1}{2} \sbr{e^{\nu^* + \nu_{12}} - e^{\nu^*}} \cos(\mu_1 - \mu_2)
+    - \frac{1}{2} \sbr{e^{\nu^* - \nu_{12}} - e^{\nu^*}} \cos(\mu_1 + \mu_2),
+    \\
+    \intertext{where}
+    \nu^* &= -\frac{\nu_{11} + \nu_{22}}{2}.
+  \end{align*}
+\end{lemma}
+\begin{proof}
+  Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
+  Then by inserting \eqref{eq:activation-sin}, we have
+  \begin{align}
+    \Cov(\sigma(X_1), \sigma(X_2))
+    &= \expect \sin(X_1) \sin(X_2) - \expect \sin(X_1) \expect \sin(X_2).
+    \label{eq:cov-sin-sin}
+  \end{align}
+  % https://en.wikipedia.org/wiki/List_of_trigonometric_identities#Product-to-sum_and_sum-to-product_identities
+  Using some trigonometric identities and \eqref{eq:expect-cos}, the first term of \eqref{eq:cov-sin-sin} becomes
+  \begin{align}
+    \expect \sin(X_1) \sin(X_2)
+    &= \frac{1}{2} \expect \cos(\underbrace{X_1 - X_2}_{
+      \mathcal N(\mu_1 - \mu_2, \nu_{11} + \nu_{22} - 2\nu_{12})
+      })
+    - \frac{1}{2} \expect \cos(\underbrace{X_1 + X_2}_{\mathcal N(\mu_1 + \mu_2, \nu_{11} + \nu_{22} + 2\nu_{12})})
+    \\
+    &= \frac{1}{2} \exp\del{-\frac{\nu_{11} + \nu_{22}}{2} + \nu_{12}} \cos(\mu_1 - \mu_2)
+    - \frac{1}{2} \exp\del{ -\frac{\nu_{11} + \nu_{22}}{2} - \nu_{12}} \cos(\mu_1 + \mu_2)
+  \end{align}
+  The second term of \eqref{eq:cov-sin-sin} becomes
+  \begin{align}
+    \expect \sin(X_1) \expect \sin(X_2)
+    &= \frac{1}{2} \exp\del{-\frac{\nu_{11} + \nu_{22}}{2}} \cos(\mu_1 - \mu_2)
+    - \frac{1}{2} \exp\del{ -\frac{\nu_{11} + \nu_{22}}{2}} \cos(\mu_1 + \mu_2)
+  \end{align}
+  The result follows from collecting like terms.
+\end{proof}
+
+\begin{lemma}
+  Let \(L_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation}.
+  Then
+  \begin{align*}
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12})
+    &=
+    \nu_{12} e^{-\nu_{11}/2} \cos(\mu_1). 
+  \end{align*}
+\end{lemma}
+\begin{proof}
+   Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
+  Using Lemma \ref{lem:stein}, we have
+  \begin{align}
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12})
+    &= \nu_{12} \expect \sigma'(X_1)
+    \\
+    &= \nu_{12} \expect \cos(X_1)
+    \\
+    &= \nu_{12} e^{-\nu_{11}/2} \cos(\mu_1)
+  \end{align}
+  by \eqref{eq:expect-cos}.
 \end{proof}
 
 \clearpage
