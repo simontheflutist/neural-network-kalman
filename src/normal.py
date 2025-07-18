@@ -25,6 +25,9 @@ class Normal(equinox.Module):
         self.n = μ.shape[0]
         assert self.Σ.shape == (self.n, self.n), self.Σ
 
+    def mean_field(self):
+        return Normal(μ=self.μ, Σ=jnp.diag(jnp.diag(self.Σ)))
+
     def qmc(self, num_samples, seed=42):
         return scipy.stats.qmc.MultivariateNormalQMC(
             mean=self.μ,

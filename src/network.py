@@ -277,6 +277,7 @@ class Network(equinox.Module):
         x: typing.Union[np.array, jnp.array, normal.Normal],
         method="analytic",
         rectify=False,
+        mean_field = False
     ):
         if method == "unscented":
             μ, Σ = unscented_transform(self, x.μ, x.Σ)
@@ -292,6 +293,8 @@ class Network(equinox.Module):
         else:
             for layer in self.layers:
                 x = layer(x, method=method)
+                if mean_field:
+                    x = x.mean_field()
         if rectify:
             x = x.rectify()
         return x
