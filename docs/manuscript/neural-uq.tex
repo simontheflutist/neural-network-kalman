@@ -195,7 +195,7 @@ Further numerical examples show surprisingly effective mean and covariance propa
 \textbf{Related work.}
 Existing work on UQ for neural networks is classified by the assumptions imposed on the Gaussian distribution (Table~\ref{tab:covariance-assumptions}).
 When the covariance matrix is small, the delta method justifies propagation of the mean by point evaluation and covariance by linearization \cite{titensky_uncertainty_2018,nagel_kalman-bucy-informed_2022,petersen_uncertainty_2024,jungmann_analytical_2025}, formulas with a long history \citep[Chapter 187]{gauss_theory_1857} \citep{taylor_introduction_1997}.
-The Unscented Transformation, used in \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015}, is also justified by a Taylor series argument \citep{julier_scaled_2002}.
+The Unscented Transformation, used in \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015}, is also justified by a Taylor (no relation) series argument \citep{julier_scaled_2002}.
 Some other works \citep{huber_bayesian_2020,wagner_kalman_2022,akgul_deterministic_2025} make the mean-field assumption that each layers' neurons are independent, which can be a serviceable simplification for Bayesian learning, but leads to over-approximation of the covariance matrix.
 These approximations can be made to look arbitrarily wrong by hand-constructed counterexamples {\color{red} appendices}.
 
@@ -231,7 +231,7 @@ We will often omit the ``type annotations'' indicating the input and output dime
     A neural network with \(\ell \) layers is the function \(f: \mathbb R^{n_x} \to \mathbb R^{n_y}\) defined by
     \begin{align*}
         f(x) &= f^\ell(x) \\
-        f^k(x) &= g^k(f^{k-1}(x); A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+        f^k(x) &= g(f^{k-1}(x); A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
         f^0(x) &= x
     \end{align*}
 \end{definition}
@@ -249,7 +249,7 @@ Because this problem is intractable in general, our approach is to replace it wi
     Given \(X \sim \mathcal N(\mu, \Sigma)\), the layer-wise Gaussian approximation of \(f(X)\), denoted \(Y = \Normal f(X)\), is the random variable such that
     \begin{align*}
         Y &=  Y^\ell\\
-        Y^k &= \normal g^k(Y^{k-1}; A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+        Y^k &= \normal g(Y^{k-1}; A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
         Y^0 &= X
     \end{align*}
 \end{definition}
