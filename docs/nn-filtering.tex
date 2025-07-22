@@ -1056,34 +1056,6 @@ First, the Lipschitz constant \(\left\|\nabla g^k\right\|_\infty\), assuming our
   &\leq \sqrt{\frac{2}{\pi}} \left\|A\right\|
   + \left\|C\right\|
 \end{align}
-% For less conservatism, it would 
-% Suppose that \(A\) has \(m\) rows and \(n\) columns.
-% \begin{align}
-%   \begin{split}
-%     % \MoveEqLeft
-%   \sup_{x} \left\|2 A^\intercal \operatorname{diag} \cbr{\phi(Ax + b)} + C^\intercal\right\|^2
-%   \\
-%   &\leq
-%   \sup_{\xi \in [0, \sqrt{2/\pi}]^m} 
-%   \left\|
-%     2 A^\intercal \operatorname{diag}(\xi) + C^\intercal
-%   \right\|^2
-%   \end{split}
-%   \\
-%   &\leq
-%   \sup_{\omega \in \mathbb R^n, \|\omega\| = 1} \sup_{\xi \in [0, \sqrt{2/\pi}]^m} 
-%   \left\|
-%     2 \omega^\intercal A^\intercal \operatorname{diag}(\xi) + \omega^\intercal C^\intercal
-%   \right\|^2
-%   \\
-%   &\leq
-%   \sup_{\omega \in \mathbb R^n, \|\omega\| = 1} \sup_{\xi \in [0, \sqrt{2/\pi}]^m} 
-%   \left\|
-%     2 \omega^\intercal A^\intercal \operatorname{diag}(\xi) + \omega^\intercal C^\intercal
-%   \right\|^2
-%   \\
-% \end{align}
-
 
 \subsection{Non-normality}
 Second, we need to bound the distance between \(g^k(Y^{k-1})\) and \(Y^k\).
@@ -1104,40 +1076,6 @@ Then
 These expectations can be computed exactly with Gaussian integrals.
 (WIP)
 
-% \chapter{Numerical example}
-% With random \((A, b, C, d)\)s, I prepared a deepish MLP with
-% \begin{itemize}
-%   \item 2-dimensional input \(x \sim \mathcal N(0, \alpha I)\) and.
-%   \item 1-dimensional output \(y\)
-% \end{itemize}
-% defined by
-% \begin{align}
-%   y = \del{f_4 \circ f_3 \circ f_2 \circ f_1}(x)
-% \end{align}
-% where all the intermediate layers have 10 neurons.
-% The figure on the next page shows Monte Carlo results (100,000
-% repetitions) for \(\alpha \in (0.01, 1, 100)\):
-% \begin{description}
-%   \item[empirical KDE]  is a kernel density estimate of the true
-%     distribution of \(y\)
-%   \item[pseudo-true Gaussian fit] is a Gaussian PDF parameterized by
-%     the sample mean and variance of \(y\)
-%   \item[unscented approximation] is the Unscented Transform applied
-%     to \(\del{f_4 \circ f_3 \circ f_2 \circ f_1}\) with untuned
-%     default settings.
-%   \item[linear approximation] is a small-variance delta method
-%     formula similar to what EKF uses
-%   \item[my approximation] is my formula applied to Gaussian
-%     re-approximations at the output of each layer.
-% \end{description}
-% The goodness of approximation at \(\alpha=100\) suggests that my
-% formula might be good for high-\(Q\) nonlinear filtering applications.
-
-% \begin{figure*}
-% \clearpage
-% \includegraphics[width=\textwidth]{../figures/deep-mlp.pdf}
-%   \caption{\label{fig:deep-mlp}}
-% \end{figure*}
 \bibliographystyle{abbrv}
 \bibliography{nn-filtering}
 \end{document}

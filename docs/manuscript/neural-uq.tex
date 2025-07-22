@@ -126,6 +126,9 @@ hyperref, cancel, bm}
 \DeclareMathOperator{\Var}{\operatorname{Var}}
 \DeclareMathOperator{\Cov}{\operatorname{Cov}}
 
+\DeclareMathOperator{\normal}{\mathrm N}
+\DeclareMathOperator{\Normal}{\mathrm N^*}
+
 % \setcitestyle{authoryear}
 \begin{document}
 
@@ -155,9 +158,9 @@ Most methods including, our own, may be viewed as re-approximating each layer's 
     % \toprule
     Assumption & References \\
     \midrule
-    \(\Sigma\) is small (unscented) & \citet{astudillo_propagation_2011, abdelaziz_uncertainty_2015} \\
     \(\Sigma\) is small (linearized)  & \citet{titensky_uncertainty_2018, nagel_kalman-bucy-informed_2022}\\
     & \citet{petersen_uncertainty_2024, jungmann_analytical_2025} \\
+    \(\Sigma\) is small (unscented) & \citet{astudillo_propagation_2011, abdelaziz_uncertainty_2015} \\
     \(\Sigma\) is diagonal          &  \citet{huber_bayesian_2020, wagner_kalman_2022,akgul_deterministic_2025}\\
     \(\mu = 0\)    & \citet{bibi_analytic_2018} \\
     no assumptions                 &  \citet{wright_analytic_2024}\\
@@ -184,10 +187,166 @@ Most methods including, our own, may be viewed as re-approximating each layer's 
     \caption{\label{tab:activation-functions} Activation functions for which moment propagation has been analyzed analytically.}
 \end{table}
 
-\textbf{Contribution.} We describe a general template, valid for any activation function, for propagating a mean and covariance matrix through a single layer of a deep (residual) neural network, and compute \emph{exact} formulas for the probit and sine activation functions.
+\textbf{Contribution.} We describe a general operator, valid for any activation function, for propagating a mean and covariance matrix through a single layer of a deep (residual) neural network, and compute \emph{exact} formulas for the probit and sine activation functions.
 No further assumptions are made.
 Numerical examples show orders-of-magnitude accuracy improvement over other simplifying assumptions.
 Further numerical examples show surprisingly effective mean and covariance propagation for deep neural networks when the single-layer formula is chained over layers, and give a modest theoretical outlook for this phenomenon.
+
+\textbf{Related work.}
+Existing work on UQ for neural networks is classified by the assumptions imposed on the Gaussian distribution (Table~\ref{tab:covariance-assumptions}).
+When the covariance matrix is small, the delta method justifies propagation of the mean by point evaluation and covariance by linearization \cite{titensky_uncertainty_2018,nagel_kalman-bucy-informed_2022,petersen_uncertainty_2024,jungmann_analytical_2025}, formulas with a long history \citep[Chapter 187]{gauss_theory_1857} \citep{taylor_introduction_1997}.
+The Unscented Transformation, used in \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015}, is also justified by a Taylor series argument \citep{julier_scaled_2002}.
+Some other works \citep{huber_bayesian_2020,wagner_kalman_2022,akgul_deterministic_2025} make the mean-field assumption that each layers' neurons are independent, which can be a serviceable simplification for Bayesian learning, but leads to over-approximation of the covariance matrix.
+These approximations can be made to look arbitrarily wrong by hand-constructed counterexamples {\color{red} appendices}.
+
+\citet{bibi_analytic_2018} uses a zero-mean approximation to get a closed-form formula for propagating means and variances through a piecewise linear network.
+Whether (and which) moments can be propagated analytically is ultimately an affordance of the activation function, reflected in the studies shown in Table~\ref{tab:activation-functions}.
+It seems that piecewise linear functions, though popular for learning, make it difficult to derive a closed-form formula for off-diagonal covariances.
+The works  \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015,huber_bayesian_2020} analyze neural networks with a logistic activation function by approximating it with another function having closed-form Gaussian moments.
+\citet{wright_analytic_2024} finds power series expansions for the first and second moments of a general activation function.
+
+Our work attains the same generality and exactness as \citet{wright_analytic_2024}, but in terms of closed form formulas rather than power series.
+Our layers are more general than all of the above works in that they superpose an affine transformation with the activation function, which allows analysis of residual networks and graphs \(x \mapsto (x, f(x))\).
+
+\section{Problem formulation}
+\subsection{Notation}
+The activation function of a neural network is denoted \(\sigma:\mathbb R \to \mathbb R\) and understood to be applied elementwise.
+Except for parameters \(A, b, C, d\), capital letters refer to random variables.
+The layers of a neural network are indicated by superscripts, e.g.~\(A^k\) is a matrix of parameters for the \(k\)th layer.
+
+If \(X\) is a square-integrable random vector, the notation \(\normal X\) refers to a random variable having distribution \(\mathcal N(\expect X, \Cov X)\).
+If \(f\) is a neural network, the notation \(\Normal f(X)\) is a Normal random variable in which the normality approximation is applied to each layer, in a sense we will make precise in the next section.
+
+\subsection{Conventions}
+Let \(\sigma : \mathbb R \to \mathbb R\) be an activation function.
+
+\begin{definition}
+    \label{def:layer-function}
+    A layer function is a function \(g:\mathbb R^n \times \mathbb R^{m \times n} \times \mathbb R^m \times \mathbb R^{m \times n} \times \mathbb R^m \to \mathbb R^m\) defined by \(g(x; A, b, C, d) = \sigma(A x + b) + C x + d\), where \(A \in \mathbb R^{m \times n}, b \in \mathbb R^m, C \in \mathbb R^{m \times n}, d \in \mathbb R^m\) are parameters.
+\end{definition}
+
+We will often omit the ``type annotations'' indicating the input and output dimensions when it is only necessary to imply that they are compatible.
+
+\begin{definition}
+    A neural network with \(\ell \) layers is the function \(f: \mathbb R^{n_x} \to \mathbb R^{n_y}\) defined by
+    \begin{align*}
+        f(x) &= f^\ell(x) \\
+        f^k(x) &= g^k(f^{k-1}(x); A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+        f^0(x) &= x
+    \end{align*}
+\end{definition}
+
+\subsection{Problem}
+\begin{problem}
+    Let \(f\) be a neural network with \(\ell\) layers.
+    Given \(X \sim \mathcal N(\mu, \Sigma)\), characterize the distribution of \(Y_0 = f(X)\).
+\end{problem}
+
+Because this problem is intractable in general, our approach is to replace it with the proxy:
+
+\begin{definition}
+    Let \(f\) be a neural network with \(\ell\) layers.
+    Given \(X \sim \mathcal N(\mu, \Sigma)\), the layer-wise Gaussian approximation of \(f(X)\), denoted \(Y = \Normal f(X)\), is the random variable such that
+    \begin{align*}
+        Y &=  Y^\ell\\
+        Y^k &= \normal g^k(Y^{k-1}; A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+        Y^0 &= X
+    \end{align*}
+\end{definition}
+
+In {\color{red} cite}, we give a theoretical bound on the dissimilarity between the laws of \(Y_0\) and \(Y\).
+
+An auxiliary distribution used for benchmarking is:
+\begin{definition}
+    Let \(f \) be a neural network with \(\ell\) layers.
+    Given \(X \sim \mathcal N(\mu, \Sigma)\), the pseudo-true Gaussian approximation of \(f(X)\) is \(Y_1 = \normal f(X)\).
+\end{definition}
+
+\section{Methods}
+It turns out that only three transcendental functions are needed to compute the first two moments of the pushforward measure of a Gaussian distribution under a layer defined by Def.~\ref{def:layer-function}.
+\begin{definition}
+  \label{def:moment-maps}
+  Given a nonlinear function \(\sigma: \mathbb{R} \to \mathbb R\),
+  the functions \(M_\sigma: \mathbb{R}  \times \mathbb{R}_+ \to
+  \mathbb{R}\) and \(K_\sigma, L_\sigma: \mathbb{R}^2 \times \mathbb
+  R_+^2 \times [0, 1] \to \mathbb{R}\) are
+  \begin{align*}
+    M_\sigma(\mu; \nu) &= \expect{\sigma(X)},
+    & X &\sim \mathcal N(\mu, \nu)
+    \\
+    K_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12}) &= \Cov
+    (\sigma(X_1), \sigma(X_2)),
+    &
+    \begin{pmatrix}
+      X_1 \\ X_2
+    \end{pmatrix} &\sim \mathcal N\del{
+      \begin{pmatrix}
+        \mu_1 \\ \mu_2
+      \end{pmatrix},
+      \begin{pmatrix}
+        \nu_{11} & \nu_{12} \\
+        \nu_{12} & \nu_{22}
+      \end{pmatrix}
+    }
+    \\
+    L_\sigma(\mu_1; \nu_{11}, \nu_{22}, \nu_{12}) &= \Cov
+    (\sigma(X_1), X_2),
+    &
+    \begin{pmatrix}
+      X_1 \\ X_2
+    \end{pmatrix} &\sim \mathcal N\del{
+      \begin{pmatrix}
+        \mu_1 \\ \star
+      \end{pmatrix},
+      \begin{pmatrix}
+        \nu_{11} & \nu_{12} \\
+        \nu_{12} & \nu_{22}
+      \end{pmatrix}
+    }
+    \\
+  \end{align*}
+\end{definition}
+
+\begin{lemma}
+  Let \(g\) be the function defined by \(g(x; A, b, C, d) = \sigma(A
+  x+ b) + C x + d\).
+  Let \(X \sim \mathcal N(\mu, \Sigma)\).
+  Then
+  \begin{align*}
+    \del{\expect g(X; A, b, C, d)}_i &= M_\sigma(\mu_i; \nu_{ii}) +
+    (C\mu)_i + d_i
+  \end{align*}
+  and
+  \begin{align*}
+    \begin{split}
+      \del{\Cov g(X; A, b, C, d)}_{i, j} &=
+        K_\sigma\del{
+          \mu_i, \mu_j; \nu_{ii}, \nu_{jj}, \nu_{ij}
+        } \\
+        &\quad + L_\sigma\del{
+          \mu_i; \nu_{ii}, \tau_{jj},\kappa_{ij}
+        }
+        + L_\sigma\del{
+          \mu_j; \nu_{jj}, \tau_{ii},\kappa_{ji}
+        } \\
+        &\quad + \tau_{ij}.
+    \end{split}
+  \end{align*}
+  where for all valid indices \((i, j)\),
+  \begin{align*}
+    \mu_i &= (A\mu + b)_i
+    &
+    \tau_{ij}
+    &= (C\Sigma C^\intercal)_{i,j}
+    \\
+    \nu_{ij} &= (A\Sigma A^\intercal)_{i,j}
+    &
+    \kappa_{ij}
+    &= (A \Sigma C^\intercal)_{i,j}
+  \end{align*}
+\end{lemma}
+These are five-variable transcendental functions that are too complex to be represented by a look-up table, and thus need to be computed analytically for a strategic choice of activation function \(\sigma\).
+We work them out for the probit sigmoid activation in App.~\ref{app:probit} and for the sine activation in App.~\ref{app:sine}.
 
 
 \begin{ack}
@@ -209,8 +368,445 @@ Do {\bf not} include this section in the anonymized submission, only in the fina
 
 \appendix
 
-\section{Technical Appendices and Supplementary Material}
-Technical appendices with additional results, figures, graphs and proofs may be submitted with the paper submission before the full submission deadline (see above), or as a separate PDF in the ZIP file below before the supplementary material deadline. There is no page limit for the technical appendices.
+\section{Derivation of uncertainty propagation formulas for probit activation}
+\label{app:probit}
+In this appendix, we derive the \(M_\sigma\), \(K_\sigma\), and
+\(L_\sigma\) functions (Def.~\ref{def:moment-maps}) for the normal
+CDF activation function
+\begin{align}
+  \sigma(x) &= \sqrt{\frac{2}{\pi}} \int_{0}^x e^{-\frac{1}{2} u^2}
+  du = 2 \Phi(x) - 1, \quad \Phi(x) = \probability_{Z \sim \mathcal
+  N(0, 1)}(Z \leq x)
+  \label{eq:activation}
+\end{align}
+
+\begin{definition}
+  The bivariate normal CDF \(\Phi_2\) is defined by
+  \begin{align*}
+    \Phi_2(h, k; \rho)
+    &= \probability\sbr{Z_1 \leq h, Z_2\leq k},
+    \intertext{where}
+    \begin{pmatrix}
+      Z_1 \\ Z_2
+    \end{pmatrix}
+    &\sim \mathcal N\del{\begin{pmatrix} 0 \\ 0 \end{pmatrix}, \begin{pmatrix}
+      1 & \rho \\ \rho & 1
+    \end{pmatrix}}.
+  \end{align*}
+\end{definition}
+\begin{lemma}
+  Let \(M_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation}.
+  \begin{align*}
+    M_\sigma(\mu; \nu) &= \sigma\del{\frac{\mu}{\sqrt{1 + \nu}}}
+  \end{align*}
+  \label{lem:mean}
+\end{lemma}
+\begin{proof}
+  Let \(X \sim \mathcal N(\mu, \nu)\).
+  \begin{align}
+    \expect \sigma(X)
+    &= -1+2\expect \Phi\del{X}
+    \\
+    &= -1+2\expect \probability \sbr{{Z \leq X} \mid X}
+    \tag{introducing an independent \(Z \sim \mathcal{N}(0, 1)\)}
+    \\
+    &= -1+2\probability\sbr{{Z \leq X}}
+    \tag{by the law of total probability}
+    \\
+    &= -1+2\probability \sbr{Z - X \leq 0}
+  \end{align}
+  We conclude by noting that the random variable \(Z - X\) has a
+  Normal distribution with mean \(-\mu\) and variance \(1 + \nu^2\).
+\end{proof}
+
+\begin{lemma}
+  Let \(K_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation}.
+  \begin{align*}
+    K(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12}) &=
+    4 \left.
+    % \sbr{
+    \Phi_2\del{
+      \frac{\mu_1}{\sqrt{1 + \nu_{11}}},
+      \frac{\mu_2}{\sqrt{1 + \nu_{22}}};
+      \rho'
+    }
+    % }
+    \right|^{\rho' = \frac{\nu_{12}}{\sqrt{(1 +
+    \nu_{11})(1 + \nu_{22})}}}_{\rho' = 0},
+  \end{align*}
+  where \(\Phi_2\) is the bivariate normal CDF.
+\end{lemma}
+\begin{proof}
+  Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
+  By a similar calculation as in Lemma~\ref{lem:mean}, we introduce independent
+  \(Z_1, Z_2 \sim \mathcal N(0, 1)\) and have
+  \begin{align}
+    \Cov (\sigma(X_1), \sigma(X_2))
+    &= 4 \Cov (\Phi(X_1), \Phi(X_2))
+    \\
+    &= 4\expect \Phi(X_1) \Phi (X_2) - 4\expect \Phi(X_1) \expect \Phi(X_2)
+    \\
+    &= 4 \probability\sbr{Z_1 \leq X_1, Z_2 \leq X_2} -
+    4\probability\sbr{Z_1 \leq X_1} \probability\sbr{Z_2 \leq X_2}
+    \\
+    &= 4 \probability\sbr{Z_1 - X_1 \leq 0, Z_2 - X_2 \leq 0} -
+    4\probability\sbr{Z_1- X_1\leq 0} \probability\sbr{Z_2 - X_2 \leq 0}.
+  \end{align}
+  We conclude by using the fact that \((Z_1 - X_1, Z_2 - X_2)\) is
+  jointly Normal with distribution
+  \begin{align}
+    \begin{pmatrix}
+      Z_1 - X_1
+      \\
+      Z_2 - X_1
+    \end{pmatrix}
+    \sim
+    \mathcal{N}\del{
+      \begin{pmatrix}
+        -\mu_1
+        \\
+        -\mu_2
+      \end{pmatrix},
+      \begin{pmatrix}
+        1 + \nu_{11}
+        &
+        \nu_{12}
+        \\
+        \nu_{12}
+        &
+        1 + \nu_{22}
+      \end{pmatrix}
+    }.
+  \end{align}
+\end{proof}
+\begin{remark}
+  The bivariate normal CDF can be a difficult transcendental function
+  to evaluate.
+  Many software packages such as SciPy \citep{wagner_kalman_2022}
+  implement the multivariate normal CDF by a (quasi-) Monte Carlo
+  integration over \(\mathbb{R}^n\), which is too expensive for our purposes.
+  Furthermore, the expression \(\Phi(h, k; \rho) - \Phi(h, k; 0)\) is
+  vulnerable to cancellation error for extreme values of \(h\),
+  \(k\), and \(\rho\).
+  To avoid this, we implement \(K\) by 10-point Gaussian quadrature
+  of the one-dimensional proper integral
+  \begin{align*}
+    \Phi_2(h, k; \rho) -
+    \Phi_2(h, k; 0)
+    &= \int_0^\rho \partial_\rho' \Phi_2(h, k; \rho') \dif\rho',
+  \end{align*}
+  using
+  \begin{align*}
+    \partial_\rho \Phi_2(h, k; \rho)
+    &= \frac{1}{2\pi \sqrt{1 - \rho^2}} e^{-\frac{1}{2(1 - \rho^2)}
+    \del{h^2 + k^2 - 2 \rho h k}},
+  \end{align*}
+  a helpful identity found in \citet{drezner_computation_1990}
+\end{remark}
+
+
+\begin{lemma}[Stein's lemma]
+  \label{lem:stein}
+  Let \(L_\sigma\) be defined as in Definition \ref{def:moment-maps}, and suppose that \(\sigma\) is differentiable.
+  Then
+  \begin{align*}
+    L_\sigma(\mu_1, \mu_2; \nu_1^2, \nu_2^2, \rho) &= \rho
+    \nu_1 \nu_2 \expect \sigma'(Z_1),
+    & Z_1 &\sim \mathcal N(\mu_1, \nu^2_1).
+  \end{align*}
+\end{lemma}
+
+
+\begin{lemma}
+  Let \(L_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation}.
+  Then
+  \begin{align*}
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12}) &= 2
+    \frac{\nu_{12}}{\sqrt{1 + \nu_{11}}}
+    \phi\del{\frac{\mu_1}{\sqrt{1 + \nu_{11}}}}.
+  \end{align*}
+\end{lemma}
+\begin{proof}
+   Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
+  Using Lemma \ref{lem:stein}, we have
+  \begin{align}
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12})
+    &= \nu_{12} \expect \sigma'(X_1)
+    \\
+    &= 2\nu_{12} \expect \phi(X_1)
+  \end{align}
+  where \(\phi = \Phi'\).
+  We conclude by appealing to the Gaussian integral identity that
+  when \(Z \sim \mathcal N(\mu_Z, \nu_Z)\),
+  \begin{align}
+    \expect \phi(Z) = \frac{1}{\sqrt{1 + \nu_Z}}
+    \phi\del{\frac{\mu_Z}{\sqrt{1 + \nu_Z}}}.
+  \end{align}
+\end{proof}
+
+\section{Derivation of uncertainty propagation formulas for sine activation}
+\label{app:sine}
+In this appendix, we derive the \(M_\sigma\), \(K_\sigma\) and
+\(L_\sigma\) functions (Def.~\ref{def:moment-maps}) for the sinusoidal activation function
+\begin{align}
+  \label{eq:activation-sin}
+  \sigma(x) &= \sin(x).
+\end{align}
+We begin by recalling the identities that if \(Z \sim \mathcal N(\mu, \nu)\),
+\begin{align}
+\label{eq:expect-sin}
+  \expect \sin(Z) &= e^{-\nu/2} \sin(\mu)
+  \\
+  \label{eq:expect-cos}
+  \expect \cos(Z) &= e^{-\nu/2} \cos(\mu)
+\end{align}
+
+From \eqref{eq:expect-sin} immediately follows:
+\begin{lemma}
+  Let \(M_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation-sin}.
+  Then
+  \begin{align*}
+    M_\sigma(\mu; \nu) &= e^{-\nu/2}\sin(\mu).
+  \end{align*}
+\end{lemma}
+
+\begin{lemma}
+  Let \(K_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation-sin}.
+  Then
+  \begin{align*}
+    \begin{split}
+      K_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12}) 
+      &= \frac{1}{2} \sbr{e^{\nu^* + \nu_{12}} - e^{\nu^*}} \cos(\mu_1 - \mu_2) \\
+      &\quad - \frac{1}{2} \sbr{e^{\nu^* - \nu_{12}} - e^{\nu^*}} \cos(\mu_1 + \mu_2),
+    \end{split}
+    \intertext{where}
+    \nu^* &= -\frac{\nu_{11} + \nu_{22}}{2}.
+  \end{align*}
+\end{lemma}
+\begin{proof}
+  Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
+  Then by inserting \eqref{eq:activation-sin}, we have
+  \begin{align}
+    \Cov(\sigma(X_1), \sigma(X_2))
+    &= \expect \sin(X_1) \sin(X_2) - \expect \sin(X_1) \expect \sin(X_2).
+    \label{eq:cov-sin-sin}
+  \end{align}
+  % https://en.wikipedia.org/wiki/List_of_trigonometric_identities#Product-to-sum_and_sum-to-product_identities
+  Using some trigonometric identities and \eqref{eq:expect-cos}, the first term of \eqref{eq:cov-sin-sin} becomes
+  \begin{align}
+    \expect \sin(X_1) \sin(X_2)
+    &= \frac{1}{2} \expect \cos(\underbrace{X_1 - X_2}_{
+      \mathcal N(\mu_1 - \mu_2, \nu_{11} + \nu_{22} - 2\nu_{12})
+      })
+    - \frac{1}{2} \expect \cos(\underbrace{X_1 + X_2}_{\mathcal N(\mu_1 + \mu_2, \nu_{11} + \nu_{22} + 2\nu_{12})})
+    \\
+    \begin{split}
+      &= \frac{1}{2} \exp\del{-\frac{\nu_{11} + \nu_{22}}{2} + \nu_{12}} \cos(\mu_1 - \mu_2) \\
+      &\quad - \frac{1}{2} \exp\del{ -\frac{\nu_{11} + \nu_{22}}{2} - \nu_{12}} \cos(\mu_1 + \mu_2)
+    \end{split}
+  \end{align}
+  The second term of \eqref{eq:cov-sin-sin} becomes
+  \begin{align}
+    \begin{split}
+      \expect \sin(X_1) \expect \sin(X_2)
+      &= \frac{1}{2} \exp\del{-\frac{\nu_{11} + \nu_{22}}{2}} \cos(\mu_1 - \mu_2) \\
+      &\quad - \frac{1}{2} \exp\del{ -\frac{\nu_{11} + \nu_{22}}{2}} \cos(\mu_1 + \mu_2)
+    \end{split}
+  \end{align}
+  The result follows from collecting like terms.
+\end{proof}
+
+\begin{lemma}
+  Let \(L_\sigma\) be defined as in Def.~\ref{def:moment-maps}, with
+  \(\sigma\) as in \eqref{eq:activation-sin}.
+  Then
+  \begin{align*}
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12})
+    &=
+    \nu_{12} e^{-\nu_{11}/2} \cos(\mu_1). 
+  \end{align*}
+\end{lemma}
+\begin{proof}
+   Let
+  \begin{align}
+  \begin{pmatrix} X_1 \\ X_2 \end{pmatrix}
+   \sim \mathcal N\left(\begin{pmatrix}
+    \mu_1
+    \\
+    \mu_2
+  \end{pmatrix},
+  \begin{pmatrix}
+    \nu_{11}
+    &
+    \nu_{12}
+    \\
+    \nu_{12}
+    &
+    \nu_{22}
+  \end{pmatrix}\right).
+  \end{align}
+  Using Lemma \ref{lem:stein}, we have
+  \begin{align}
+    L_\sigma(\mu_1, \mu_2; \nu_{11}, \nu_{22}, \nu_{12})
+    &= \nu_{12} \expect \sigma'(X_1)
+    \\
+    &= \nu_{12} \expect \cos(X_1)
+    \\
+    &= \nu_{12} e^{-\nu_{11}/2} \cos(\mu_1)
+  \end{align}
+  by \eqref{eq:expect-cos}.
+\end{proof}
+
+\section{Theoretical Guarantees}
+\label{app:theoretical-guarantees}
+The objective of this section is to provide a theoretical analysis of the dissimilarity between \(Y_0\) and \(Y\).
+We recall the layer-by-layer Normal approximation resulting in \(Y\) alongside the exact neural network formula resulting in \(Y_0\).
+\begin{subequations}
+  \begin{align}
+    Y &= Y^\ell & Y_0 &= Y^\ell_0
+    \\
+    Y^k &= g^k(Y^{k-1}), & Y_0^k &= g^k(Y_0^{k-1}), & k \in
+    \cbr{1 \ldots \ell},
+    \label{eq:hidden-layer-comparison}
+    \\
+    Y^0 &= X & Y_0^0 &= X,
+    \intertext{where \(g^k\) is the function}
+    g^k(x) &= g(x; A^k, b^k, C^k, d^k).
+\end{align}
+\end{subequations}
+We will use the Wasserstein distance to measure the distance between \(Y\) and \(Y_0\).
+
+\begin{definition}
+Let \(X\) and \(Y\) be random variables taking values  \(\mathbb{R}^n\).
+The Wasserstein distance \(d_\text{W} (\mu, \nu)\) is 
+\begin{align*}
+  d_\mathrm{W}(X, Y) &= \sup_{\left\|\nabla h\right\|_{\infty} \leq 1} \expect (h(X) - h(Y)).
+\end{align*}
+\end{definition}
+
+The ultimate goal is to show that \(d_\text{W} (Y_0,Y)\) is small.
+We will build up this quantity by recursion through the layers of the neural network.
+The key idea is that the error induced by Normal approximation gets worse with every subsequent layer of the network.
+% Heuristically, if \(X\) is Normal, then \(Y_0^0\) is close to Normal and therefore well-approximated by its first and second moments.
+% Then \(Y_0^1\) is a less Normal than \(Y_0^0\), and so on.
+% Thus, roughly speaking, the approximation error in distribution should, by a triangle inequality, scale rougly linearly in the depth of the network.
+
+\subsection{Recursive triangle inequality}
+Our basic triangle inequality is
+\begin{align}
+  \Delta^k &:= d_\mathrm{W}(Y_0^k, Y^k) 
+  \label{eq:discrepancy}
+  \\
+  &= d_\mathrm{W}(g^k(Y_0^{k-1}), Y^k)
+  \tag{definition of hidden layer \eqref{eq:hidden-layer-comparison}}
+  \\
+  &\leq d_\mathrm{W}(g^k(Y_0^{k-1}), g^k(Y^{k-1})) + d_\mathrm{W}(g^k(Y^{k-1}), Y^k)
+  \tag{triangle inequality}
+  \\
+  &\leq \left\|\nabla g^k\right\|_\infty d_\mathrm{W}(Y_0^{k-1}, Y^{k-1}) + d_\mathrm{W}(g^k(Y^{k-1}), Y^k)
+  \tag{Lipschitz property of \(d_\mathrm{W}\)}
+  \\
+  &\leq \left\|\nabla g^k\right\|_\infty \Delta^{k-1} + d_\mathrm{W}(g^k(Y^{k-1}), Y^k)
+  \label{eq:discrepancy-recursion}
+  % \tag{recursion to \eqref{eq:discrepancy}}
+\end{align}
+In words, at a hidden layer \(k\),
+\begin{multline}
+  \text{error at layer \(k\)}
+  = \del{\text{Lipschitz constant of layer \(k\)}} \del{\text{error at layer \(k-1\)}} 
+  \\
+  + \del{\text{normal approximation error at layer \(k\)}}  
+\end{multline}
+If \(X\) is Gaussian, then \(\Delta^0 = 0\).
+We need to fill two blanks to make this formula concrete.
+
+\subsection{Lipschitz constant}
+First, the Lipschitz constant \(\left\|\nabla g^k\right\|_\infty\):
+\begin{align}
+  \nabla g(x; A, b, C, d)
+  &= \nabla \sbr{\sigma(A x + b) + C x +  d}
+  \\
+  &= 2A^\intercal \operatorname{diag} \cbr{\sigma'(Ax + b)} + C^\intercal
+  \intertext{To bound this quantity,}
+  \left\|\nabla g(x; A, b, C, d)
+  \right\|
+  &\leq \sup_{x} \left\|2 A^\intercal \operatorname{diag} \cbr{\sigma'(Ax + b)} + C^\intercal\right\|
+  \\
+  &\leq \left\|\sigma'\right\|_\infty \left\|A\right\|
+  + \left\|C\right\|
+\end{align}
+
+\subsection{Non-normality}
+Second, we need to bound the distance between \(g^k(Y^{k-1})\) and \(Y^k\).
+The importance of the recursion \eqref{eq:discrepancy-recursion} is that at layer \(k\), we assess the goodness of fit between \(g^k(Y^{k-1})\), a nonlinear transformation of a Normal random vector, and \(Y^k\), its approximant.
+The input to the nonlinearity is Normal.
+Since \(Y^{k-1}\) is Normal, we can use techniques from the functional analysis of Gaussian spaces, such as this second-order Poincar\'e inequality:
+\begin{theorem}[Second-order Poincar\'e inequality {\cite[Theorem~7.1]{nourdin_second_2009}}]
+Suppose that \(Y = f(X)\) is a random vector taking values in \(\mathbb{R}^n\), where \(X\) is a standard Normal random vector, and that \(Y\) has mean \(\mu\) and covariance matrix \(\Sigma\).
+Then
+\begin{align*}
+  d_\mathrm{W}\del{Y, \mathcal N(\mu, \Sigma)}
+  \leq \frac{3}{\sqrt 2} \|\Sigma^{-1}\| \|\Sigma\|^{1/2}
+  \sbr{\sum_{i = 1}^n \del{\expect \left\|D^2 f_i\right\|^4}^{1/4}}
+  \sbr{\sum_{i = 1}^n \del{\expect \left\|D f_i\right\|^4}^{1/4}}
+\end{align*}
+\end{theorem}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
