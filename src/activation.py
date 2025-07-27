@@ -8,6 +8,16 @@ from jax.scipy.stats.norm import cdf as Φ
 from jax.scipy.stats.norm import pdf as ϕ
 
 
+def ϕ_2(h, k, rho):
+    """bivariate normal pdf"""
+    return (
+        1
+        / (2 * np.pi)
+        / jnp.sqrt((1 - rho**2))
+        * jnp.exp(-0.5 / (1 - rho**2) * (h**2 + k**2 - 2 * rho * h * k))
+    )
+
+
 class Activation(equinox.Module):
     @abc.abstractmethod
     def __call__(self, x):
@@ -38,6 +48,40 @@ class Zero(Activation):
 
     def L(self, mean_1, mean_2, var_1, var_2, covariance):
         return 0
+
+
+class ReLU(Activation):
+    def __call__(self, x):
+        return jnp.maximum(0, x)
+
+    def M(self, mean, var):
+        std = var**0.5
+        return mean * Φ(mean / std) + std * ϕ(mean / std)
+
+    def K(self, mean_1, mean_2, var_1, var_2, covariance):
+        std_1 = var_1**0.5
+        std_2 = var_2**0.5
+        correlation = jnp.where(covariance != 0, covariance / (std_1 * std_2), 0.0)
+
+        cross_term_1 = mean_1 * (mean_2 * Φ(mean_2 / std_2) + std_2 * ϕ(mean_2 / std_2))
+        cross_term_2 = mean_2 * (mean_1 * Φ(mean_1 / std_1) + std_1 * ϕ(mean_1 / std_1))
+        return (
+            std_1
+            * std_2
+            * (
+                correlation
+                * NormalCDF.Φ_2_increment_quad(
+                    mean_1 / std_1, mean_2 / std_2, correlation, num_points=20
+                )
+                + ϕ_2(mean_1 / std_1, mean_2 / std_2, correlation)
+            )
+            + cross_term_1
+            + cross_term_2
+            - mean_1 * mean_2
+        )
+
+    def L(self, mean_1, mean_2, var_1, var_2, covariance):
+        return covariance * Φ(mean_1 * var_1**-0.5)
 
 
 class Sinusoid(Activation):

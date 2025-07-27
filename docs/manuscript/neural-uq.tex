@@ -153,37 +153,45 @@ Because neural networks are nonlinear, the output distribution generally does no
 Most methods including, our own, may be viewed as re-approximating each layer's neurons by a Gaussian distribution.
 
 \begin{table}[h]
-    \centering
-    \begin{tabular}{ll}
-    % \toprule
-    Assumption & References \\
-    \midrule
-    \(\Sigma\) is small (linearized)  & \citet{titensky_uncertainty_2018, nagel_kalman-bucy-informed_2022}\\
-    & \citet{petersen_uncertainty_2024, jungmann_analytical_2025} \\
-    \(\Sigma\) is small (unscented) & \citet{astudillo_propagation_2011, abdelaziz_uncertainty_2015} \\
-    \(\Sigma\) is diagonal          &  \citet{huber_bayesian_2020, wagner_kalman_2022,akgul_deterministic_2025}\\
-    \(\mu = 0\)    & \citet{bibi_analytic_2018} \\
-    no assumptions                 &  \citet{wright_analytic_2024}\\
-    & this paper \\
-    % \bottomrule
-    \end{tabular}
+    \begin{center}
+      \begin{tabular}{ll}
+      \toprule
+      Assumption & References \\
+      \midrule
+      \(\Sigma\) is small (linearized)  & \citet{titensky_uncertainty_2018, nagel_kalman-bucy-informed_2022}\\
+      & \citet{petersen_uncertainty_2024, jungmann_analytical_2025} \\
+      \(\Sigma\) is small (unscented) & \citet{astudillo_propagation_2011, abdelaziz_uncertainty_2015} \\
+      \(\Sigma\) is diagonal          &  \citet{huber_bayesian_2020, wagner_kalman_2022,akgul_deterministic_2025}\\
+      \(\mu = 0\)    & \citet{bibi_analytic_2018} \\
+      \(\mu \to \infty\) & \citet{wu_deterministic_2019} \\
+      no assumptions                 &  \citet{wright_analytic_2024}\\
+      & this paper \\
+      \bottomrule
+      \end{tabular}
+    \end{center}
+    
     \caption{\label{tab:covariance-assumptions} Comparison of assumptions imposed on Gaussian approximations of neural network layers.}
 \end{table}
 
 \begin{table}[h]
-    \centering
-    \begin{tabular}{ll}
-    Activation function & References \\
-    \midrule
-    piecewise linear & \citet{bibi_analytic_2018,huber_bayesian_2020}\\
-    & \citet{wright_analytic_2024,akgul_deterministic_2025} \\
-    logistic (\(\approx\) piecewise exponential) &  \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015}\\
-    logistic (\(\approx\) \(\Phi\)) & \citet{huber_bayesian_2020} \\
-    Heaviside &  \citet{wright_analytic_2024}\\
-    GeLU & \citet{wright_analytic_2024}\\
-    \(\Phi\) + affine & this paper \\
-    \(\sin\) + affine & this paper
-    \end{tabular}
+    \begin{center}
+      \begin{tabular}{ll}
+      \toprule
+      Activation function & References \\
+      \midrule
+      piecewise linear & \citet{bibi_analytic_2018,huber_bayesian_2020}\\
+      & \citet{wright_analytic_2024,akgul_deterministic_2025} \\
+      & \citet{wu_deterministic_2019} \\
+      logistic (\(\approx\) piecewise exponential) &  \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015}\\
+      logistic (\(\approx\) \(\Phi\)) & \citet{huber_bayesian_2020} \\
+      Heaviside &  \citet{wu_deterministic_2019, wright_analytic_2024}\\
+      GeLU & \citet{wright_analytic_2024}\\
+      \(\Phi\) + affine & this paper \\
+      \(\sin\) + affine & this paper
+      \\      
+      \bottomrule
+      \end{tabular}
+    \end{center}
     \caption{\label{tab:activation-functions} Activation functions for which moment propagation has been analyzed analytically.}
 \end{table}
 
@@ -199,11 +207,14 @@ The Unscented Transformation, used in \citet{astudillo_propagation_2011,abdelazi
 Some other works \citep{huber_bayesian_2020,wagner_kalman_2022,akgul_deterministic_2025} make the mean-field assumption that each layers' neurons are independent, which can be a serviceable simplification for Bayesian learning, but leads to over-approximation of the covariance matrix.
 These approximations can be made to look arbitrarily wrong by hand-constructed counterexamples {\color{red} appendices}.
 
-\citet{bibi_analytic_2018} uses a zero-mean approximation to get a closed-form formula for propagating means and variances through a piecewise linear network.
+
 Whether (and which) moments can be propagated analytically is ultimately an affordance of the activation function, reflected in the studies shown in Table~\ref{tab:activation-functions}.
-It seems that piecewise linear functions, though popular for learning, make it difficult to derive a closed-form formula for off-diagonal covariances.
-The works  \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015,huber_bayesian_2020} analyze neural networks with a logistic activation function by approximating it with another function having closed-form Gaussian moments.
-\citet{wright_analytic_2024} finds power series expansions for the first and second moments of a general activation function.
+The ReLU function \(\sigma(x) = \max(0, x)\) does not readily yield exact expressions for off-diagonal layer covariances:
+\citet{bibi_analytic_2018} uses an analytical approximation around zero mean, and \citet{wu_deterministic_2019} uses an analytical approximation around infinite mean.
+Neither does the traditional logistic function \(\sigma(x) = (1 + e^{-x})^{-1}\):
+the works  \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015,huber_bayesian_2020} approximate the logistic activation function with another function having closed-form Gaussian moments.
+For a general activation function, 
+\citet{wright_analytic_2024} expands all intra-layer covariances as a power series (convergent for \(\rho \in (-1, 1)\)) in neuron-neuron correlation \(\rho\).
 
 Our work attains the same generality and exactness as \citet{wright_analytic_2024}, but in terms of closed form formulas rather than power series.
 Our layers are more general than all of the above works in that they superpose an affine transformation with the activation function, which allows analysis of residual networks and graphs \(x \mapsto (x, f(x))\).
@@ -215,7 +226,7 @@ Except for parameters \(A, b, C, d\), capital letters refer to random variables.
 The layers of a neural network are indicated by superscripts, e.g.~\(A^k\) is a matrix of parameters for the \(k\)th layer.
 
 If \(X\) is a square-integrable random vector, the notation \(\normal X\) refers to a random variable having distribution \(\mathcal N(\expect X, \Cov X)\).
-If \(f\) is a neural network, the notation \(\Normal f(X)\) is a Normal random variable in which the normality approximation is applied to each layer, in a sense we will make precise in the next section.
+If \(f\) is a neural network, the notation \(\Normal f(X)\) is a Normal random variable in which the normality approximation is applied to each layer, in a sense we will make precise in the next sections.
 
 \subsection{Conventions}
 Let \(\sigma : \mathbb R \to \mathbb R\) be an activation function.
@@ -237,6 +248,7 @@ We will often omit the ``type annotations'' indicating the input and output dime
 \end{definition}
 
 \subsection{Problem}
+\label{sec:problem}
 \begin{problem}
     Let \(f\) be a neural network with \(\ell\) layers.
     Given \(X \sim \mathcal N(\mu, \Sigma)\), characterize the distribution of \(Y_0 = f(X)\).
@@ -254,7 +266,7 @@ Because this problem is intractable in general, our approach is to replace it wi
     \end{align*}
 \end{definition}
 
-In {\color{red} cite}, we give a theoretical bound on the dissimilarity between the laws of \(Y_0\) and \(Y\).
+In Appendix~\ref{app:theoretical-guarantees}, we give a theoretical bound on the dissimilarity between the laws of \(Y_0\) and \(Y\).
 
 An auxiliary distribution used for benchmarking is:
 \begin{definition}
@@ -348,6 +360,45 @@ It turns out that only three transcendental functions are needed to compute the 
 These are five-variable transcendental functions that are too complex to be represented by a look-up table, and thus need to be computed analytically for a strategic choice of activation function \(\sigma\).
 We work them out for the probit sigmoid activation in App.~\ref{app:probit} and for the sine activation in App.~\ref{app:sine}.
 
+\section{Numerical Results}
+\subsection{Interpolation regime}
+\label{sec:interpolation-regime}
+Much of the effectiveness of overparameterized (wide and deep) neural networks is now understood by reference to an ``interpolation regime'' in which a neural network is supervised to fit training data exactly while simultaneously minimizing a regularization norm \citep{muthukumar_harmless_2020,schaeffer_double_2023,belkin_reconciling_2019}.
+In this section, we train a neural network \(f\) with 121,201 parameters to interpolate \(y = f(x)\) for twenty pairs \((x, y)\), where we have randomly drawn \((x, y) \sim \mathcal N(0_2, I_2)\).
+Details on the training process are provided in App.~\ref{app:interpolation-regime}.
+The training data and the resulting function \(f\) are shown in Fig.~\ref{fig:interpolation-regime-function}.
+
+The input is \(X \sim \mathcal N(0, 1)\).
+The distributions \(Y\), \(Y_0\), and \(Y_1\) follow \S\ref{sec:problem}.
+Our approximation beats the other approximations by a mile on all counts: closest mean to \(Y_1\), closest variance to \(Y_1\), least Wasserstein distance to \(Y_0\), and least Kullback-Leibler divergence to \(Y_1\) (Table~\ref{tab:interpolated-nominal-variance}).
+These figures are consistent with inspection of the probability distributions (Fig.~\ref{fig:interpolated-regime-pdf}).
+
+Details on the Monte Carlo simulation method and the summary statistics are given in App.~\ref{app:monte-carlo}.
+
+\begin{table}
+  \begin{center}
+    \input{tables/interpolated-nominal-variance}
+  \end{center}
+  \caption{\label{tab:interpolated-nominal-variance} Normal distributions arising from the problem in \S\ref{sec:interpolation-regime}.}
+\end{table}
+
+\begin{figure}
+  \centering
+  \includegraphics[]{figures/interpolated-function.pdf}
+  \caption{Training data (dots) and learned function (solid line) in the interpolation regime.}
+  \label{fig:interpolation-regime-function}
+\end{figure}
+
+\begin{figure}
+  \centering
+  \includegraphics[]{figures/interpolated-nominal-variance-density.pdf}
+  \caption{\label{fig:interpolated-regime-pdf} Histogram of \(Y_0\) and probability density functions of its approximants in \S\ref{sec:interpolation-regime}.}
+\end{figure}
+
+\section{Computational complexity}
+\subsection{Theoretical}
+
+\subsection{Empirical}
 
 \begin{ack}
 Use unnumbered first level headings for the acknowledgments. All acknowledgments
@@ -359,7 +410,6 @@ More information about this disclosure can be found at: \url{https://neurips.cc/
 Do {\bf not} include this section in the anonymized submission, only in the final paper. You can use the \texttt{ack} environment provided in the style file to automatically hide this section in the anonymized submission.
 \end{ack}
 
-\section*{References}
 \bibliographystyle{abbrvnat}
 \bibliography{nn-filtering.bib}
 
@@ -807,6 +857,54 @@ Then
   \sbr{\sum_{i = 1}^n \del{\expect \left\|D f_i\right\|^4}^{1/4}}
 \end{align*}
 \end{theorem}
+
+
+\section{Training details for \S\ref{sec:interpolation-regime}}
+\label{app:interpolation-regime}
+
+\subsection{Network Architecture}
+The neural network is implemented using JAX and Equinox, with the following architecture:
+\begin{itemize}
+    \item Input layer: 1D input (scalar)
+    \item First hidden layer: 200 neurons with sinusoidal activation ($\sigma(x) = \sin(x)$)
+    \item Three residual hidden layers: 200 neurons each with sinusoidal activation
+    \item Output layer: Linear layer with 1D output (scalar)
+\end{itemize}
+
+\subsection{Training Details}
+The training process follows these specifications:
+\begin{itemize}
+    \item Training samples: 10 pairs $(x, y)$ where $x, y \sim \mathcal{N}(0, 1)$
+    \item Loss function: Mean squared error (MSE) between predicted and target outputs
+    \item Optimization: AdamW optimizer with learning rate $10^{-5}$
+    \item Training duration: 10,000 iterations
+    \item Batch size: Full batch (all 10 samples used in each update)
+    \item Weight initialization:
+    \begin{itemize}
+        \item First layer: Zero matrix for weights, uniform random for biases
+        \item Hidden layers: Random orthogonal projection for weights, uniform random for biases
+        \item Output layer: Zero initialization for both weights and biases
+    \end{itemize}
+\end{itemize}
+
+\subsection{Implementation Details}
+The implementation uses JAX's just-in-time compilation and automatic differentiation capabilities:
+\begin{itemize}
+    \item Uses Equinox for neural network implementation and training utilities
+    \item Employs JIT compilation for the training step to improve performance
+    \item Implements batched computation using JAX's vectorization capabilities
+    \item Training is performed on CPU (though the code supports GPU acceleration)
+\end{itemize}
+
+\subsection{Training Process}
+The network is trained to minimize the mean squared error between predictions and targets:
+\[
+\frac{1}{N}\sum_{i=1}^N (f_\theta(x_i) - y_i)^2
+\]
+where $f_\theta$ represents the neural network with parameters $\theta$, and $(x_i, y_i)$ are the training samples. The training process uses the full dataset for each update.
+
+\section{Monte Carlo simulation and analysis}
+\label{app:monte-carlo}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

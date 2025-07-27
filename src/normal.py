@@ -103,9 +103,17 @@ class Normal(equinox.Module):
     def rectify(self):
         return Normal(self.μ, rectify_eigenvalues(self.Σ))
 
+    @staticmethod
+    def from_samples(samples):
+        return Normal(jnp.atleast_1d(jnp.mean(samples, axis=0)), jnp.atleast_2d(jnp.cov(samples, rowvar=False, ddof=1)))
+
     @equinox.filter_jit
     def kl_divergence(self, other: "Normal") -> float:
         """Compute the Kullback-Leibler divergence D(other || self)."""
+        if self is other:
+            return 0
+        
+
         trace = jnp.trace(jnp.linalg.solve(self.Σ, other.Σ))
         log_det = jnp.log(jnp.linalg.det(self.Σ) / jnp.linalg.det(other.Σ))
         mean_diff = self.μ - other.μ

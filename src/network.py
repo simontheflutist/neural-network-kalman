@@ -256,6 +256,18 @@ class Layer(equinox.Module):
             d=d_new,
         )
 
+    def num_parameters(self):
+        num = 0
+        if equinox.is_inexact_array(self.A):
+            num += self.A.size
+        if equinox.is_inexact_array(self.b):
+            num += self.b.size
+        if equinox.is_inexact_array(self.C):
+            num += self.C.size
+        if equinox.is_inexact_array(self.d):
+            num += self.d.size
+        return num
+
 
 class Network(equinox.Module):
     layers: typing.List[Layer]
@@ -277,7 +289,7 @@ class Network(equinox.Module):
         x: typing.Union[np.array, jnp.array, normal.Normal],
         method="analytic",
         rectify=False,
-        mean_field = False
+        mean_field=False,
     ):
         if method == "unscented":
             μ, Σ = unscented_transform(self, x.μ, x.Σ)
@@ -313,3 +325,6 @@ class Network(equinox.Module):
             new_layers.append(layer._direct_sum_with_identity(w_size, dtype=dtype))
         new_layers.append(self.layers[-1]._augment_with_sum(w_size, dtype=dtype))
         return Network(*new_layers)
+
+    def num_parameters(self):
+        return sum(layer.num_parameters() for layer in self.layers)

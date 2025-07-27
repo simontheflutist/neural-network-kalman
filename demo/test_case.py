@@ -3,10 +3,15 @@ import sys
 
 import equinox
 import jax
+import matplotlib
+import numpy as np
 import optax
 import pandas as pd
 import scipy.stats
 from jax import numpy as jnp
+
+matplotlib.rcParams.update({"font.size": 7})
+from matplotlib.figure import Figure
 
 # Set up logging
 logging.basicConfig(
@@ -139,12 +144,11 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
 
 def train_network(network: network.Network, learning_rate: float = 1e-4):
     logger.info(f"Starting network training with learning rate={learning_rate}")
-    x, y = jax.random.normal(jax.random.PRNGKey(-1), (2, 10))
 
     @equinox.filter_jit
     def get_loss(model):
-        pred_x = jax.vmap(model)(x.reshape(-1, 1)).reshape(-1)
-        return ((pred_x - y) ** 2).mean()
+        pred_x = jax.vmap(model)(network.train_x.reshape(-1, 1)).reshape(-1)
+        return ((pred_x - network.train_y) ** 2).mean()
 
     loss_value_and_grad = equinox.filter_value_and_grad(get_loss)
 
@@ -204,12 +208,39 @@ class RandomNeuralNetwork:
         )
         if self.weights == Weights.TRAINED:
             logger.info("Training network...")
+            self.network.train_x, self.network.train_y = jax.random.normal(
+                jax.random.PRNGKey(-1), (2, 10)
+            )
             self.network = train_network(self.network)
             logger.info("Network training completed")
 
+    def plot_function(self):
+        logger.info("Plotting function")
+        x_grid = np.linspace(-2, 2, 2000)
+        y_values = jax.vmap(self.network)(x_grid.reshape(-1, 1)).reshape(-1)
+
+        fig = Figure(dpi=300, figsize=(4, 2), constrained_layout=1)
+        ax = fig.gca()
+        if (
+            self.weights == Weights.TRAINED
+            and hasattr(self, "train_x")
+            and hasattr(self, "train_y")
+        ):
+            ax.scatter(
+                self.train_x,
+                self.train_y,
+                color="C1",
+                label="training data",
+            )
+        ax.plot(x_grid, y_values, label="$y = f(x)$")
+        ax.set_xlabel("$x$")
+        ax.set_ylabel("$y$")
+        ax.legend()
+        fig.savefig(f"functions/{str(self)}.pdf")
+
     def __str__(self) -> str:
         """Return a string representation of the test case."""
-        return f"RandomNeuralNetwork(topology={self.topology.name.lower()}-weights={self.weights.name.lower()}-activation={self.activation.name.lower()}"
+        return f"RandomNeuralNetwork(topology={self.topology.name.lower()},weights={self.weights.name.lower()},activation={self.activation.name.lower()}"
 
 
 @dataclass
@@ -296,6 +327,60 @@ class RandomNeuralNetworkTestCase:
             column_format="crrrr",
         )
 
+    def plot_distributions(self):
+        y_mesh = np.linspace(
+            self.pseudo.μ - 3 * self.pseudo.Σ**0.5,
+            self.pseudo.μ + 3 * self.pseudo.Σ**0.5,
+            3000,
+        ).reshape(-1)
+        fig = Figure(dpi=300, figsize=(5, 3), constrained_layout=1)
+        ax1 = fig.add_subplot(211)
+        ax1.hist(
+            self.monte_carlo_outputs, bins=100, density=True, alpha=0.5, label="$Y_0$"
+        )
+        ax1.plot(
+            y_mesh,
+            jax.vmap(self.pseudo.pdf)(y_mesh),
+            label="$Y_1$",
+        )
+        ax1.plot(
+            y_mesh,
+            jax.vmap(self.approximations[Method.ANALYTIC].pdf)(y_mesh),
+            label="$Y$",
+            linestyle="--",
+        )
+        ax1.set_xticks([])
+        ax1.legend()
+
+        ax2 = fig.add_subplot(212)
+        ax2.plot(
+            y_mesh,
+            jax.vmap(self.approximations[Method.UNSCENTED].pdf)(y_mesh),
+            label="unscented",
+            linestyle="-",
+        )
+
+        ax2.plot(
+            y_mesh,
+            jax.vmap(self.approximations[Method.LINEAR].pdf)(y_mesh),
+            label="linear",
+            linestyle="--",
+        )
+
+        ax2.plot(
+            y_mesh,
+            jax.vmap(self.approximations[Method.MEAN_FIELD].pdf)(y_mesh),
+            label="mean-field",
+            linestyle="dotted",
+        )
+
+        ax2.set_ylim(ax1.get_ylim())
+        ax2.legend()
+
+        ax2.set_xlabel("$y$")
+
+        fig.savefig(f"distributions/{str(self)}.pdf")
+
     def __str__(self) -> str:
         return f"RandomNeuralNetworkTestCase(network={self.network},variance={self.variance})"
 
@@ -312,12 +397,14 @@ def generate_networks():
 
 for random_network in generate_networks():
     logger.info(f"Network: {random_network}")
+    random_network.plot_function()
     for variance in Variance:
         test_case = RandomNeuralNetworkTestCase(random_network, variance)
         logger.info(f"Test case: {test_case}")
         test_case.write_table()
+        test_case.plot_distributions()
         # break
-    break
+    # break
 
 
 # f = build_network(jax.random.PRNGKey(1), Activation.SINE_RESIDUAL, Topology.WIDE)
