@@ -35,6 +35,8 @@ import normal
 import random_matrix
 from tqdm import trange
 
+base_path = "../docs/manuscript/generated/"
+
 
 class Activation(Enum):
     """Enumeration for activation function types."""
@@ -235,7 +237,9 @@ class RandomNeuralNetwork:
         ax.set_xlabel("$x$")
         ax.set_ylabel("$y$")
         ax.legend()
-        fig.savefig(f"functions/{str(self)}.pdf")
+        filename = f"functions/{str(self)}.pdf"
+        fig.savefig(base_path + filename)
+        return filename
 
     def __str__(self) -> str:
         """Return a string representation of the test case."""
@@ -321,17 +325,19 @@ class RandomNeuralNetworkTestCase:
                             self.approximations[Method.UNSCENTED],
                         ),
                     ]
-                ]
+                ],
             ]
         )
 
+        filename = f"tables/{str(self)}.tex"
         df.to_latex(
-            f"tables/{str(self)}.tex",
+            base_path + filename,
             index=False,
             escape=False,
             float_format=lambda x: f"{x:.6e}",
             column_format="crrrr",
         )
+        return filename
 
     def plot_distributions(self):
         y_mesh = np.linspace(
@@ -385,7 +391,9 @@ class RandomNeuralNetworkTestCase:
 
         ax2.set_xlabel("$y$")
 
-        fig.savefig(f"distributions/{str(self)}.pdf")
+        filename = f"distributions/{str(self)}.pdf"
+        fig.savefig(base_path + filename)
+        return filename
 
     def __str__(self) -> str:
         return f"RandomNeuralNetworkTestCase(network={self.network},variance={self.variance})"
@@ -402,15 +410,27 @@ def generate_networks():
 
 
 if __name__ == "__main__":
-    for random_network in generate_networks():
-        logger.info(f"Network: {random_network}")
-        random_network.plot_function()
-        for variance in Variance:
-            test_case = RandomNeuralNetworkTestCase(random_network, variance)
-            logger.info(f"Test case: {test_case}")
-            test_case.write_table()
-            test_case.plot_distributions()
-        # break
+    with open(base_path + "generated.tex", "w") as f:
+        for random_network in generate_networks():
+            logger.info(f"Network: {random_network}")
+            f.write(
+                f"\\subsection{{Network: {str(random_network).replace("_", " ")}}}\n"
+            )
+            filename = random_network.plot_function()
+            f.write(f"\\includegraphics{{generated/{filename}}}\n")
+
+            for variance in Variance:
+                test_case = RandomNeuralNetworkTestCase(random_network, variance)
+                f.write(f"\\subsubsection{{Variance: {variance.name}}}\n")
+                logger.info(f"Test case: {test_case}")
+                table_name = test_case.write_table()
+                distribution_name = test_case.plot_distributions()
+                f.write(f"\\input{{generated/{table_name}}}\n")
+                f.write(f"\\includegraphics{{generated/{distribution_name}}}\n")
+                f.write("\\clearpage\n")
+                f.flush()
+
+            # break
     # break
 
 
