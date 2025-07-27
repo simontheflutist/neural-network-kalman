@@ -142,47 +142,6 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
     return network.Network(*layers)
 
 
-def train_network(network: network.Network, learning_rate: float = 1e-4):
-    logger.info(f"Starting network training with learning rate={learning_rate}")
-
-    @equinox.filter_jit
-    def get_loss(model):
-        pred_x = jax.vmap(model)(network.train_x.reshape(-1, 1)).reshape(-1)
-        return ((pred_x - network.train_y) ** 2).mean()
-
-    loss_value_and_grad = equinox.filter_value_and_grad(get_loss)
-
-    opt = optax.adamw(learning_rate=learning_rate, weight_decay=1e-3)
-    opt_state = opt.init(network)
-
-    @equinox.filter_jit
-    def step(model, opt_state):
-        loss, grads = loss_value_and_grad(model)
-        updates, opt_state = opt.update(grads, opt_state, params=model)
-        done = loss < 1e-8
-        return loss, equinox.apply_updates(model, updates), opt_state, done
-
-    pbar = trange(100000)
-    for i in pbar:
-        loss, updated_network, opt_state, done = step(network, opt_state)
-        if done:
-            logger.info(
-                f"Training converged after {i} iterations with final loss={loss:.20f}"
-            )
-            break
-        network = updated_network
-        if i % 100 == 0:
-            pbar.set_postfix(
-                {
-                    "mse": f"{loss:.20f}",
-                }
-            )
-    else:
-        raise Exception("Training did not converge")
-
-    return network
-
-
 @dataclass
 class RandomNeuralNetwork:
     """Test case for random neural network configurations.
@@ -208,11 +167,51 @@ class RandomNeuralNetwork:
         )
         if self.weights == Weights.TRAINED:
             logger.info("Training network...")
-            self.network.train_x, self.network.train_y = jax.random.normal(
+            self.train_x, self.train_y = jax.random.normal(
                 jax.random.PRNGKey(-1), (2, 10)
             )
-            self.network = train_network(self.network)
+            self.network = self.train_network()
             logger.info("Network training completed")
+
+    def train_network(self, learning_rate: float = 1e-4):
+        logger.info(f"Starting network training with learning rate={learning_rate}")
+
+        @equinox.filter_jit
+        def get_loss(model):
+            pred_x = jax.vmap(model)(self.train_x.reshape(-1, 1)).reshape(-1)
+            return ((pred_x - self.train_y) ** 2).mean()
+
+        loss_value_and_grad = equinox.filter_value_and_grad(get_loss)
+
+        opt = optax.adamw(learning_rate=learning_rate, weight_decay=1e-3)
+        opt_state = opt.init(self.network)
+
+        @equinox.filter_jit
+        def step(model, opt_state):
+            loss, grads = loss_value_and_grad(model)
+            updates, opt_state = opt.update(grads, opt_state, params=model)
+            done = loss < 1e-8
+            return loss, equinox.apply_updates(model, updates), opt_state, done
+
+        pbar = trange(100000)
+        for i in pbar:
+            loss, updated_network, opt_state, done = step(self.network, opt_state)
+            if done:
+                logger.info(
+                    f"Training converged after {i} iterations with final loss={loss:.20f}"
+                )
+                break
+            self.network = updated_network
+            if i % 100 == 0:
+                pbar.set_postfix(
+                    {
+                        "mse": f"{loss:.20f}",
+                    }
+                )
+        else:
+            raise Exception("Training did not converge")
+
+        return self.network
 
     def plot_function(self):
         logger.info("Plotting function")
@@ -240,14 +239,14 @@ class RandomNeuralNetwork:
 
     def __str__(self) -> str:
         """Return a string representation of the test case."""
-        return f"RandomNeuralNetwork(topology={self.topology.name.lower()},weights={self.weights.name.lower()},activation={self.activation.name.lower()}"
+        return f"RandomNeuralNetwork(topology={self.topology.name.lower()},weights={self.weights.name.lower()},activation={self.activation.name.lower()})"
 
 
 @dataclass
 class RandomNeuralNetworkTestCase:
     network: RandomNeuralNetwork
     variance: Variance
-    num_samples: int = 2**20
+    num_samples: int = 2**15
 
     def __post_init__(self):
         self.dist = {
@@ -287,34 +286,41 @@ class RandomNeuralNetworkTestCase:
         df = pd.DataFrame(
             [
                 {
-                    DISTRIBUTION: name,
-                    MEAN: dist.μ.item(),
-                    VARIANCE: dist.Σ.item(),
+                    DISTRIBUTION: r"pseudo-true (\(Y_1\))",
+                    MEAN: self.pseudo.μ.item(),
+                    VARIANCE: self.pseudo.Σ.item(),
                     WASSERSTEIN: scipy.stats.wasserstein_distance(
                         self.monte_carlo_outputs.reshape(-1),
-                        dist.qmc(self.num_samples).reshape(-1),
-                    ).item()
-                    * self.pseudo.Σ.item() ** -0.5,
-                    KL: self.pseudo.kl_divergence(dist).item(),
-                }
-                for name, dist in [
-                    (
-                        r"pseudo-true (\(Y_1\))",
-                        self.pseudo,
-                    ),
-                    (
-                        r"\midrule {\bfseries analytic approximation (\(Y\))}",
-                        self.approximations[Method.ANALYTIC],
-                    ),
-                    (
-                        r"mean-field approximation",
-                        self.approximations[Method.MEAN_FIELD],
-                    ),
-                    (r"linear approximation", self.approximations[Method.LINEAR]),
-                    (
-                        r"unscented approximation",
-                        self.approximations[Method.UNSCENTED],
-                    ),
+                        self.pseudo.qmc(self.num_samples).reshape(-1),
+                    ).item(),
+                    KL: 0,
+                },
+                *[
+                    {
+                        DISTRIBUTION: name,
+                        MEAN: dist.μ.item(),
+                        VARIANCE: dist.Σ.item(),
+                        WASSERSTEIN: scipy.stats.wasserstein_distance(
+                            self.monte_carlo_outputs.reshape(-1),
+                            dist.qmc(self.num_samples).reshape(-1),
+                        ).item(),
+                        KL: self.pseudo.kl_divergence(dist).item(),
+                    }
+                    for name, dist in [
+                        (
+                            r"\midrule {\bfseries analytic approximation (\(Y\))}",
+                            self.approximations[Method.ANALYTIC],
+                        ),
+                        (
+                            r"mean-field approximation",
+                            self.approximations[Method.MEAN_FIELD],
+                        ),
+                        (r"linear approximation", self.approximations[Method.LINEAR]),
+                        (
+                            r"unscented approximation",
+                            self.approximations[Method.UNSCENTED],
+                        ),
+                    ]
                 ]
             ]
         )
@@ -395,14 +401,15 @@ def generate_networks():
                 yield RandomNeuralNetwork(topology, weights, activation)
 
 
-for random_network in generate_networks():
-    logger.info(f"Network: {random_network}")
-    random_network.plot_function()
-    for variance in Variance:
-        test_case = RandomNeuralNetworkTestCase(random_network, variance)
-        logger.info(f"Test case: {test_case}")
-        test_case.write_table()
-        test_case.plot_distributions()
+if __name__ == "__main__":
+    for random_network in generate_networks():
+        logger.info(f"Network: {random_network}")
+        random_network.plot_function()
+        for variance in Variance:
+            test_case = RandomNeuralNetworkTestCase(random_network, variance)
+            logger.info(f"Test case: {test_case}")
+            test_case.write_table()
+            test_case.plot_distributions()
         # break
     # break
 
