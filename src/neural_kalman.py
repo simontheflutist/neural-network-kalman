@@ -1,6 +1,5 @@
 import equinox
 from jax import numpy as jnp
-
 from network import Network
 from normal import Normal
 

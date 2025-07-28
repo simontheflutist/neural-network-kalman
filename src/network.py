@@ -2,11 +2,10 @@ import typing
 
 import equinox
 import jax
-import numpy as np
-from jax import numpy as jnp
-
 import normal
+import numpy as np
 from activation import Activation, Zero
+from jax import numpy as jnp
 from random_matrix import RandomMatrixFactory, ZeroMatrix
 from unscented import unscented_transform
 

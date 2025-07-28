@@ -25,12 +25,13 @@ class RandomGaussian(RandomMatrixFactory):
     @equinox.filter_jit
     def build(self, key, shape):
         if type(shape) is int:
-            scale = 1 
+            scale = 1
         else:
             scale = 1 / jnp.sqrt(shape[0])
         return jax.random.normal(key, shape=shape) * self.scale * scale
 
-class RandomUniform(RandomMatrixFactory):    
+
+class RandomUniform(RandomMatrixFactory):
     min_val: float
     max_val: float
 
@@ -40,7 +41,9 @@ class RandomUniform(RandomMatrixFactory):
 
     @equinox.filter_jit
     def build(self, key, shape):
-        return jax.random.uniform(key, shape=shape, minval=self.min_val, maxval=self.max_val)
+        return jax.random.uniform(
+            key, shape=shape, minval=self.min_val, maxval=self.max_val
+        )
 
 
 class RandomOrthogonalProjection(RandomMatrixFactory):

@@ -3,11 +3,10 @@ import typing
 import equinox
 import jax
 import jax.numpy as jnp
-import numpy as np
-import scipy.stats
-
 import neural_kalman
 import normal
+import numpy as np
+import scipy.stats
 
 
 class KalmanDiagnostics(equinox.Module):

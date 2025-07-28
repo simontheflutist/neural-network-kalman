@@ -33,7 +33,7 @@ import activation as activation_module
 import network
 import normal
 import random_matrix
-from tqdm import trange
+from tqdm import tqdm, trange
 
 base_path = "../docs/manuscript/generated/"
 
@@ -280,9 +280,17 @@ class RandomNeuralNetworkTestCase:
 
         logger.info("Generating quasi-Monte Carlo samples")
         self.monte_carlo_inputs = self.dist.qmc(self.num_samples)
+
         self.monte_carlo_outputs = jax.vmap(self.network.network)(
             self.monte_carlo_inputs.reshape(-1, 1)
         ).reshape(-1)
+        # do MC in batches
+        # self.monte_carlo_outputs = np.array(
+        #     [
+        #         jax.vmap(self.network.network)(x_batch.reshape(-1, 1))
+        #         for x_batch in tqdm(self.monte_carlo_inputs.reshape(2**10, -1))
+        #     ]
+        # ).flatten()
 
         logger.info("Computing normal distributions")
         self.pseudo = normal.Normal.from_samples(self.monte_carlo_outputs)
@@ -306,7 +314,7 @@ class RandomNeuralNetworkTestCase:
         MEAN = r"\(\mu\)"
         VARIANCE = r"\(\sigma^2\)"
         WASSERSTEIN = r"\(d_{\mathrm W}(\cdot, Y_0)\)"
-        KL = r"\(D_{\mathrm{KL}}(\cdot, Y_1)\)"
+        KL = r"\(D_{\mathrm{KL}}(\cdot \| Y_1)\)"
         df = pd.DataFrame(
             [
                 {
@@ -332,16 +340,16 @@ class RandomNeuralNetworkTestCase:
                     }
                     for name, dist in [
                         (
-                            r"\midrule {\bfseries analytic approximation (\(Y\))}",
+                            r"\midrule {\bfseries analytic}",
                             self.approximations[Method.ANALYTIC],
                         ),
                         (
-                            r"mean-field approximation",
+                            r"mean-field",
                             self.approximations[Method.MEAN_FIELD],
                         ),
-                        (r"linear approximation", self.approximations[Method.LINEAR]),
+                        (r"linear", self.approximations[Method.LINEAR]),
                         (
-                            r"unscented approximation",
+                            r"unscented",
                             self.approximations[Method.UNSCENTED],
                         ),
                     ]
@@ -350,11 +358,21 @@ class RandomNeuralNetworkTestCase:
         )
 
         filename = f"tables/{str(self)}.tex"
+
+        def format_scientific(x):
+            if x == 0:
+                return "0"
+            return (
+                r"""\num[print-zero-exponent = true, print-exponent-implicit-plus=true]{"""
+                + f"{x:.3e}"
+                + "}"
+            )
+
         df.to_latex(
             base_path + filename,
             index=False,
             escape=False,
-            float_format=lambda x: f"{x:.6e}",
+            float_format=format_scientific,
             column_format="crrrr",
         )
         return filename
@@ -365,7 +383,7 @@ class RandomNeuralNetworkTestCase:
             self.pseudo.μ + 3 * self.pseudo.Σ**0.5,
             3000,
         ).reshape(-1)
-        fig = Figure(dpi=300, figsize=(5, 3), constrained_layout=1)
+        fig = Figure(dpi=300, figsize=(4, 2), constrained_layout=1)
         ax1 = fig.add_subplot(211)
         ax1.hist(
             self.monte_carlo_outputs, bins=100, density=True, alpha=0.5, label="$Y_0$"
@@ -423,12 +441,6 @@ def generate_networks():
     for topology in Topology:
         for weights in Weights:
             for activation in Activation:
-                if not (
-                    topology == Topology.WIDE
-                    and weights == Weights.INITIALIZED
-                    and activation == Activation.PROBIT
-                ):
-                    continue
                 logger.info(
                     f"Generating network: topology={topology.name}, weights={weights.name}, activation={activation.name}"
                 )
@@ -441,30 +453,34 @@ if __name__ == "__main__":
             logger.info(f"Network: {random_network}")
             f.write(r"\subsection{" + random_network.pretty_name + "}\n")
             filename = random_network.plot_function()
-            f.write(r"\begin{figure}[H]\centering" + "\n")
+            f.write(r"\begin{figure}[H]\begin{center}" + "\n")
             f.write(f"\\includegraphics{{generated/{filename}}}\n")
+            f.write(r"\end{center}" + "\n")
             f.write(
                 rf"\caption{{Input-output relationship of {random_network.pretty_name}}}"
                 + "\n"
             )
             f.write(r"\end{figure}" + "\n")
+            f.write("\\clearpage\n")
 
             for variance in Variance:
                 test_case = RandomNeuralNetworkTestCase(random_network, variance)
-                f.write(f"\\subsubsection{{Variance: {variance.name}}}\n")
+                f.write(f"\\subsubsection*{{Variance: {variance.name}}}\n")
                 logger.info(f"Test case: {test_case}")
                 table_name = test_case.write_table()
                 distribution_name = test_case.plot_distributions()
-                f.write(r"\begin{table}[H]\centering")
+                f.write(r"\begin{table}[H]\begin{center}")
                 f.write(f"\\input{{generated/{table_name}}}\n")
+                f.write(r"\end{center}" + "\n")
                 f.write(
                     rf"\caption{{Summary statistics for {test_case.pretty_name}}}"
                     + "\n"
                 )
                 f.write(r"\end{table}")
 
-                f.write(r"\begin{figure}[H]\centering" + "\n")
+                f.write(r"\begin{figure}[H]\begin{center}" + "\n")
                 f.write(f"\\includegraphics{{generated/{distribution_name}}}\n")
+                f.write(r"\end{center}" + "\n")
                 f.write(
                     rf"\caption{{Probability distributions for {test_case.pretty_name}}}"
                     + "\n"
