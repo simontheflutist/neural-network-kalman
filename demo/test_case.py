@@ -85,8 +85,8 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
     )
     if activation_type in (Activation.PROBIT, Activation.PROBIT_RESIDUAL):
         layer_args = dict(
-            A=random_matrix.RandomOrthogonalProjection(),
-            b=random_matrix.ZeroMatrix(),
+            A=random_matrix.RandomGaussian(),
+            b=random_matrix.RandomGaussian(),
             activation=activation_module.NormalCDF(),
         )
         if activation_type == Activation.PROBIT:
@@ -95,7 +95,7 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
             hidden_factory = network.Layer.create_residual
     elif activation_type in (Activation.SINE, Activation.SINE_RESIDUAL):
         layer_args = dict(
-            A=random_matrix.RandomOrthogonalProjection(),
+            A=random_matrix.RandomGaussian(),
             b=random_matrix.RandomUniform(),
             activation=activation_module.Sinusoid(),
         )
@@ -115,14 +115,18 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
         num_hidden_layers = 8
 
     keys = jax.random.split(key, num_hidden_layers + 1)
+    # first hidden layer
     layers = [
         network.Layer.create_nonlinear(
             in_size=1,
             out_size=num_hidden_neurons,
             key=keys[0],
-            **layer_args,
+            A=random_matrix.RandomGaussian(),
+            b=layer_args["b"],
+            activation=layer_args["activation"],
         )
     ]
+    # rest of the hidden layers
     for i in range(1, num_hidden_layers):
         layers.append(
             hidden_factory(
@@ -132,12 +136,13 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
                 **layer_args,
             )
         )
+    # output layer
     layers.append(
         network.Layer.create_linear(
             in_size=num_hidden_neurons,
             out_size=1,
             key=keys[-1],
-            C=random_matrix.RandomOrthogonalProjection(),
+            C=random_matrix.RandomGaussian(),
             d=random_matrix.ZeroMatrix(),
         )
     )
@@ -175,7 +180,7 @@ class RandomNeuralNetwork:
             self.network = self.train_network()
             logger.info("Network training completed")
 
-    def train_network(self, learning_rate: float = 1e-4):
+    def train_network(self, learning_rate: float = 1e-5):
         logger.info(f"Starting network training with learning rate={learning_rate}")
 
         @equinox.filter_jit
@@ -185,7 +190,7 @@ class RandomNeuralNetwork:
 
         loss_value_and_grad = equinox.filter_value_and_grad(get_loss)
 
-        opt = optax.adamw(learning_rate=learning_rate, weight_decay=1e-3)
+        opt = optax.adamw(learning_rate=learning_rate, weight_decay=1e-4)
         opt_state = opt.init(self.network)
 
         @equinox.filter_jit
@@ -195,7 +200,7 @@ class RandomNeuralNetwork:
             done = loss < 1e-8
             return loss, equinox.apply_updates(model, updates), opt_state, done
 
-        pbar = trange(100000)
+        pbar = trange(1_000_000)
         for i in pbar:
             loss, updated_network, opt_state, done = step(self.network, opt_state)
             if done:
@@ -243,7 +248,18 @@ class RandomNeuralNetwork:
 
     def __str__(self) -> str:
         """Return a string representation of the test case."""
-        return f"RandomNeuralNetwork(topology={self.topology.name.lower()},weights={self.weights.name.lower()},activation={self.activation.name.lower()})"
+        return f"{self.topology.name.lower()}_{self.weights.name.lower()}_{self.activation.name.lower()}"
+
+    @property
+    def pretty_name(self) -> str:
+        """Return a nicely formatted name for the network."""
+        # Convert to title case and replace underscores with spaces
+        topology = self.topology.name.lower().replace("_", " ")
+        weights = self.weights.name.lower().replace("_", " ")
+        activation = self.activation.name.lower().replace("_", " ")
+        return (
+            f"Network(topology={topology}, weights={weights}, activation={activation})"
+        )
 
 
 @dataclass
@@ -280,6 +296,10 @@ class RandomNeuralNetworkTestCase:
                 self.dist, method="analytic", mean_field=False
             ),
         }
+
+    @property
+    def pretty_name(self):
+        return f"{self.network.pretty_name}, variance={self.variance.name.lower()}"
 
     def write_table(self):
         DISTRIBUTION = "distribution"
@@ -403,6 +423,12 @@ def generate_networks():
     for topology in Topology:
         for weights in Weights:
             for activation in Activation:
+                if not (
+                    topology == Topology.WIDE
+                    and weights == Weights.INITIALIZED
+                    and activation == Activation.PROBIT
+                ):
+                    continue
                 logger.info(
                     f"Generating network: topology={topology.name}, weights={weights.name}, activation={activation.name}"
                 )
@@ -413,11 +439,15 @@ if __name__ == "__main__":
     with open(base_path + "generated.tex", "w") as f:
         for random_network in generate_networks():
             logger.info(f"Network: {random_network}")
-            f.write(
-                f"\\subsection{{Network: {str(random_network).replace("_", " ")}}}\n"
-            )
+            f.write(r"\subsection{" + random_network.pretty_name + "}\n")
             filename = random_network.plot_function()
+            f.write(r"\begin{figure}[H]\centering" + "\n")
             f.write(f"\\includegraphics{{generated/{filename}}}\n")
+            f.write(
+                rf"\caption{{Input-output relationship of {random_network.pretty_name}}}"
+                + "\n"
+            )
+            f.write(r"\end{figure}" + "\n")
 
             for variance in Variance:
                 test_case = RandomNeuralNetworkTestCase(random_network, variance)
@@ -425,18 +455,32 @@ if __name__ == "__main__":
                 logger.info(f"Test case: {test_case}")
                 table_name = test_case.write_table()
                 distribution_name = test_case.plot_distributions()
+                f.write(r"\begin{table}[H]\centering")
                 f.write(f"\\input{{generated/{table_name}}}\n")
+                f.write(
+                    rf"\caption{{Summary statistics for {test_case.pretty_name}}}"
+                    + "\n"
+                )
+                f.write(r"\end{table}")
+
+                f.write(r"\begin{figure}[H]\centering" + "\n")
                 f.write(f"\\includegraphics{{generated/{distribution_name}}}\n")
+                f.write(
+                    rf"\caption{{Probability distributions for {test_case.pretty_name}}}"
+                    + "\n"
+                )
+                f.write(r"\end{figure}")
+
                 f.write("\\clearpage\n")
                 f.flush()
 
+            # Uncomment to process only one network for testing
             # break
-    # break
 
 
 # f = build_network(jax.random.PRNGKey(1), Activation.SINE_RESIDUAL, Topology.WIDE)
 # f = build_network(jax.random.PRNGKey(1), Activation.PROBIT, Topology.DEEP)
 
-from IPython import embed
+# from IPython import embed
 
-embed(colors="neutral")
+# embed(colors="neutral")

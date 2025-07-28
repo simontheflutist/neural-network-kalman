@@ -25,9 +25,9 @@ class RandomGaussian(RandomMatrixFactory):
     @equinox.filter_jit
     def build(self, key, shape):
         if type(shape) is int:
-            scale = 1 / jnp.sqrt(shape)
+            scale = 1 
         else:
-            scale = 1 / (   jnp.sqrt(shape[0]) + jnp.sqrt(shape[1]))
+            scale = 1 / jnp.sqrt(shape[0])
         return jax.random.normal(key, shape=shape) * self.scale * scale
 
 class RandomUniform(RandomMatrixFactory):    
