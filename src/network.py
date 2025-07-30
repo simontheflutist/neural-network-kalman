@@ -7,7 +7,7 @@ import numpy as np
 from activation import Activation, Zero
 from jax import numpy as jnp
 from random_matrix import RandomMatrixFactory, ZeroMatrix
-from unscented import unscented_transform
+from unscented import UnscentedTransformMethod, unscented_transform
 
 
 class Layer(equinox.Module):
@@ -289,9 +289,10 @@ class Network(equinox.Module):
         method="analytic",
         rectify=False,
         mean_field=False,
+        unscented_method: UnscentedTransformMethod = UnscentedTransformMethod.UT0_SCALAR,
     ):
         if method == "unscented":
-            μ, Σ = unscented_transform(self, x.μ, x.Σ)
+            μ, Σ = unscented_transform(self, x.μ, x.Σ, hyperparameters=unscented_method)
             x = normal.Normal(μ, Σ)
         elif method == "linear":
             μ = x.μ

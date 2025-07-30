@@ -1,11 +1,36 @@
+from enum import Enum, auto
+
 import equinox
 import jax
 import numpy as np
 from jax import numpy as jnp
 
 
+class UnscentedHyperparameters(equinox.Module):
+    alpha: float
+    beta: float
+    kappa: float
+
+
+class UnscentedTransformMethod(Enum):
+    """
+    Possible methods used to compute the weights and points for the unscented transform.
+    """
+
+    # A New Method for the Nonlinear Transformation of Means and Covariances in Filters and Estimators
+    UT0_SCALAR = auto(UnscentedHyperparameters(alpha=1, beta=0, kappa=2))
+    # The Scaled Unscented Transformation
+    UT1_SCALAR = auto(UnscentedHyperparameters(alpha=1e-3, beta=2, kappa=2))
+
+
 @equinox.filter_jit
-def unscented_transform(f, mu, Sigma, alpha=1e0, beta=2, kappa=0, verbose=0):
+def unscented_transform(
+    f,
+    mu,
+    Sigma,
+    hyperparameters: UnscentedTransformMethod = UnscentedTransformMethod.UT0_SCALAR,
+    verbose=0,
+):
     """
     Unscented Transformation for x ~ N(mu, Sigma), where f is a nonlinear function.
 
@@ -22,9 +47,10 @@ def unscented_transform(f, mu, Sigma, alpha=1e0, beta=2, kappa=0, verbose=0):
         y_mean: mean of transformed variable
         y_cov : covariance of transformed variable
     """
+    hyperparameters = hyperparameters.value
     # with jax.ensure_compile_time_eval():
     n = mu.shape[0]
-    lambda_ = alpha**2 * (n + kappa) - n
+    lambda_ = hyperparameters.alpha**2 * (n + hyperparameters.kappa) - n
 
     # alpha controls how much the sigma points are spread out.
     # If alpha is large, the points are more spread out, and the
@@ -38,7 +64,9 @@ def unscented_transform(f, mu, Sigma, alpha=1e0, beta=2, kappa=0, verbose=0):
     Wm = np.full(2 * n + 1, 1 / (2 * (n + lambda_)))
     Wc = np.full(2 * n + 1, 1 / (2 * (n + lambda_)))
     Wm[0] = lambda_ / (n + lambda_)
-    Wc[0] = Wm[0] + (1 - alpha**2 + beta)
+    Wc[0] = lambda_ / (n + lambda_) + (
+        1 - hyperparameters.alpha**2 + hyperparameters.beta
+    )
 
     if verbose > 0:
         print("Wm:", Wm)

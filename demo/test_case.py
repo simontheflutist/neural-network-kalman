@@ -3,6 +3,9 @@ import sys
 
 import equinox
 import jax
+
+jax.config.update("jax_enable_x64", True)
+
 import matplotlib
 import numpy as np
 import optax
@@ -22,7 +25,6 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-jax.config.update("jax_enable_x64", True)
 
 sys.path.append("../src")
 
@@ -34,8 +36,10 @@ import network
 import normal
 import random_matrix
 from tqdm import tqdm, trange
+from unscented import UnscentedTransformMethod
 
 base_path = "../docs/manuscript/generated/"
+FAST = False
 
 
 class Activation(Enum):
@@ -47,8 +51,8 @@ class Activation(Enum):
     SINE_RESIDUAL = auto()
 
 
-class Topology(Enum):
-    """Enumeration for neural network topology types."""
+class Architecture(Enum):
+    """Enumeration for neural network architecture types."""
 
     SMALL = auto()
     WIDE = auto()
@@ -74,14 +78,17 @@ class Method(Enum):
     """Enumeration for UQ methods."""
 
     LINEAR = auto()
-    UNSCENTED = auto()
+    UNSCENTED0 = auto()
+    UNSCENTED1 = auto()
     MEAN_FIELD = auto()
     ANALYTIC = auto()
 
 
-def build_network(key: jax.Array, activation_type: Activation, topology: Topology):
+def build_network(
+    key: jax.Array, activation_type: Activation, architecture: Architecture
+):
     logger.info(
-        f"Building network with topology={topology.name}, activation={activation_type.name}"
+        f"Building network with architecture={architecture.name}, activation={activation_type.name}"
     )
     if activation_type in (Activation.PROBIT, Activation.PROBIT_RESIDUAL):
         layer_args = dict(
@@ -104,13 +111,13 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
         elif activation_type == Activation.SINE_RESIDUAL:
             hidden_factory = network.Layer.create_residual
 
-    if topology == Topology.SMALL:
+    if architecture == Architecture.SMALL:
         num_hidden_neurons = 50
         num_hidden_layers = 2
-    elif topology == Topology.WIDE:
+    elif architecture == Architecture.WIDE:
         num_hidden_neurons = 400
         num_hidden_layers = 2
-    elif topology == Topology.DEEP:
+    elif architecture == Architecture.DEEP:
         num_hidden_neurons = 100
         num_hidden_layers = 8
 
@@ -136,7 +143,7 @@ def build_network(key: jax.Array, activation_type: Activation, topology: Topolog
                 **layer_args,
             )
         )
-    # output layer
+    # make a provisional output layer to get linearized mean and variance
     layers.append(
         network.Layer.create_linear(
             in_size=num_hidden_neurons,
@@ -154,23 +161,23 @@ class RandomNeuralNetwork:
     """Test case for random neural network configurations.
 
     Attributes:
-        topology: The network topology type (small, wide, deep)
+        architecture: The network architecture type (small, wide, deep)
         weights: The weight initialization state (initialized, trained)
         activation: The activation function type (probit, probit_residual, sine, sine_residual)
     """
 
-    topology: Topology
+    architecture: Architecture
     weights: Weights
     activation: Activation
 
     def __post_init__(self):
         logger.info(
-            f"Initializing test case: topology={self.topology.name}, "
+            f"Initializing test case: architecture={self.architecture.name}, "
             f"weights={self.weights.name}, activation={self.activation.name}"
         )
 
         self.network = build_network(
-            jax.random.PRNGKey(1), self.activation, self.topology
+            jax.random.PRNGKey(1), self.activation, self.architecture
         )
         if self.weights == Weights.TRAINED:
             logger.info("Training network...")
@@ -200,23 +207,25 @@ class RandomNeuralNetwork:
             done = loss < 1e-8
             return loss, equinox.apply_updates(model, updates), opt_state, done
 
-        pbar = trange(1_000_000)
-        for i in pbar:
-            loss, updated_network, opt_state, done = step(self.network, opt_state)
-            if done:
-                logger.info(
-                    f"Training converged after {i} iterations with final loss={loss:.20f}"
-                )
-                break
-            self.network = updated_network
-            if i % 100 == 0:
-                pbar.set_postfix(
-                    {
-                        "mse": f"{loss:.20f}",
-                    }
-                )
-        else:
-            raise Exception("Training did not converge")
+        with jax.default_device(jax.devices("cuda")[0]):
+            pbar = trange(1_000_000 if not FAST else 1000)
+            for i in pbar:
+                loss, updated_network, opt_state, done = step(self.network, opt_state)
+                if done:
+                    logger.info(
+                        f"Training converged after {i} iterations with final loss={loss:.20f}"
+                    )
+                    break
+                self.network = updated_network
+                if i % 100 == 0:
+                    pbar.set_postfix(
+                        {
+                            "mse": f"{loss:.20f}",
+                        }
+                    )
+            else:
+                if not FAST:
+                    raise Exception("Training did not converge")
 
         return self.network
 
@@ -248,25 +257,23 @@ class RandomNeuralNetwork:
 
     def __str__(self) -> str:
         """Return a string representation of the test case."""
-        return f"{self.topology.name.lower()}_{self.weights.name.lower()}_{self.activation.name.lower()}"
+        return f"{self.architecture.name.lower()}_{self.weights.name.lower()}_{self.activation.name.lower()}"
 
     @property
     def pretty_name(self) -> str:
         """Return a nicely formatted name for the network."""
         # Convert to title case and replace underscores with spaces
-        topology = self.topology.name.lower().replace("_", " ")
+        architecture = self.architecture.name.lower().replace("_", " ")
         weights = self.weights.name.lower().replace("_", " ")
         activation = self.activation.name.lower().replace("_", " ")
-        return (
-            f"Network(topology={topology}, weights={weights}, activation={activation})"
-        )
+        return f"Network(architecture={architecture}, weights={weights}, activation={activation})"
 
 
 @dataclass
 class RandomNeuralNetworkTestCase:
     network: RandomNeuralNetwork
     variance: Variance
-    num_samples: int = 2**15
+    num_samples: int = 2**15 if FAST else 2**20
 
     def __post_init__(self):
         self.dist = {
@@ -281,29 +288,41 @@ class RandomNeuralNetworkTestCase:
         logger.info("Generating quasi-Monte Carlo samples")
         self.monte_carlo_inputs = self.dist.qmc(self.num_samples)
 
-        self.monte_carlo_outputs = jax.vmap(self.network.network)(
-            self.monte_carlo_inputs.reshape(-1, 1)
-        ).reshape(-1)
-        # do MC in batches
-        # self.monte_carlo_outputs = np.array(
-        #     [
-        #         jax.vmap(self.network.network)(x_batch.reshape(-1, 1))
-        #         for x_batch in tqdm(self.monte_carlo_inputs.reshape(2**10, -1))
-        #     ]
-        # ).flatten()
+        if FAST:
+            self.monte_carlo_outputs = jax.vmap(self.network.network)(
+                self.monte_carlo_inputs.reshape(-1, 1)
+            ).reshape(-1)
+        else:
+            with jax.default_device(jax.devices("cuda")[0]):
+                self.monte_carlo_outputs = np.array(
+                    [
+                        jax.vmap(self.network.network)(x_batch.reshape(-1, 1))
+                        for x_batch in tqdm(self.monte_carlo_inputs.reshape(-1, 2**16))
+                    ]
+                ).flatten()
 
         logger.info("Computing normal distributions")
         self.pseudo = normal.Normal.from_samples(self.monte_carlo_outputs)
-        self.approximations = {
-            Method.LINEAR: self.network.network(self.dist, method="linear"),
-            Method.UNSCENTED: self.network.network(self.dist, method="unscented"),
-            Method.MEAN_FIELD: self.network.network(
-                self.dist, method="analytic", mean_field=True
-            ),
-            Method.ANALYTIC: self.network.network(
-                self.dist, method="analytic", mean_field=False
-            ),
-        }
+        with jax.default_device(jax.devices("cpu")[0]):
+            self.approximations = {
+                Method.LINEAR: self.network.network(self.dist, method="linear"),
+                Method.UNSCENTED0: self.network.network(
+                    self.dist,
+                    method="unscented",
+                    unscented_method=UnscentedTransformMethod.UT0_SCALAR,
+                ),
+                Method.UNSCENTED1: self.network.network(
+                    self.dist,
+                    method="unscented",
+                    unscented_method=UnscentedTransformMethod.UT1_SCALAR,
+                ),
+                Method.MEAN_FIELD: self.network.network(
+                    self.dist, method="analytic", mean_field=True
+                ),
+                Method.ANALYTIC: self.network.network(
+                    self.dist, method="analytic", mean_field=False
+                ),
+            }
 
     @property
     def pretty_name(self):
@@ -311,16 +330,16 @@ class RandomNeuralNetworkTestCase:
 
     def write_table(self):
         DISTRIBUTION = "distribution"
-        MEAN = r"\(\mu\)"
-        VARIANCE = r"\(\sigma^2\)"
+        MEAN = r"\(\mu - \expect Y_0\)"
+        VARIANCE = r"\(\sigma^2/\Var Y_0\)"
         WASSERSTEIN = r"\(d_{\mathrm W}(\cdot, Y_0)\)"
         KL = r"\(D_{\mathrm{KL}}(\cdot \| Y_1)\)"
         df = pd.DataFrame(
             [
                 {
                     DISTRIBUTION: r"pseudo-true (\(Y_1\))",
-                    MEAN: self.pseudo.μ.item(),
-                    VARIANCE: self.pseudo.Σ.item(),
+                    MEAN: 0,
+                    VARIANCE: 1,
                     WASSERSTEIN: scipy.stats.wasserstein_distance(
                         self.monte_carlo_outputs.reshape(-1),
                         self.pseudo.qmc(self.num_samples).reshape(-1),
@@ -330,8 +349,8 @@ class RandomNeuralNetworkTestCase:
                 *[
                     {
                         DISTRIBUTION: name,
-                        MEAN: dist.μ.item(),
-                        VARIANCE: dist.Σ.item(),
+                        MEAN: dist.μ.item() - self.pseudo.μ.item(),
+                        VARIANCE: dist.Σ.item() / self.pseudo.Σ.item(),
                         WASSERSTEIN: scipy.stats.wasserstein_distance(
                             self.monte_carlo_outputs.reshape(-1),
                             dist.qmc(self.num_samples).reshape(-1),
@@ -349,8 +368,12 @@ class RandomNeuralNetworkTestCase:
                         ),
                         (r"linear", self.approximations[Method.LINEAR]),
                         (
-                            r"unscented",
-                            self.approximations[Method.UNSCENTED],
+                            r"unscented'95",
+                            self.approximations[Method.UNSCENTED0],
+                        ),
+                        (
+                            r"unscented'02",
+                            self.approximations[Method.UNSCENTED1],
                         ),
                     ]
                 ],
@@ -361,9 +384,11 @@ class RandomNeuralNetworkTestCase:
 
         def format_scientific(x):
             if x == 0:
-                return "0"
+                return "0 by definition"
+            if x == 1:
+                return "1 by definition"
             return (
-                r"""\num[print-zero-exponent = true, print-exponent-implicit-plus=true]{"""
+                r"""\num[print-zero-exponent = true,print-exponent-implicit-plus=true,print-implicit-plus=true]{"""
                 + f"{x:.3e}"
                 + "}"
             )
@@ -373,61 +398,88 @@ class RandomNeuralNetworkTestCase:
             index=False,
             escape=False,
             float_format=format_scientific,
-            column_format="crrrr",
+            column_format="cllll",
         )
         return filename
 
     def plot_distributions(self):
         y_mesh = np.linspace(
-            self.pseudo.μ - 3 * self.pseudo.Σ**0.5,
-            self.pseudo.μ + 3 * self.pseudo.Σ**0.5,
+            min(
+                self.pseudo.μ - 3 * self.pseudo.Σ**0.5,
+                np.percentile(self.monte_carlo_outputs, 0.5),
+            ),
+            max(
+                self.pseudo.μ + 3 * self.pseudo.Σ**0.5,
+                np.percentile(self.monte_carlo_outputs, 99.5),
+            ),
             3000,
         ).reshape(-1)
-        fig = Figure(dpi=300, figsize=(4, 2), constrained_layout=1)
-        ax1 = fig.add_subplot(211)
+        fig = Figure(dpi=300, figsize=(5, 6), constrained_layout=1)
+        ax1 = fig.add_subplot(311)
         ax1.hist(
-            self.monte_carlo_outputs, bins=100, density=True, alpha=0.5, label="$Y_0$"
+            self.monte_carlo_outputs,
+            bins=50,
+            density=True,
+            alpha=0.5,
+            label="true",
+            color="C2",
         )
-        ax1.plot(
-            y_mesh,
-            jax.vmap(self.pseudo.pdf)(y_mesh),
-            label="$Y_1$",
-        )
+        ax1.plot(y_mesh, jax.vmap(self.pseudo.pdf)(y_mesh), label="pseudo", color="C0")
         ax1.plot(
             y_mesh,
             jax.vmap(self.approximations[Method.ANALYTIC].pdf)(y_mesh),
-            label="$Y$",
+            label="analytic",
             linestyle="--",
+            color="C1",
         )
+        ax1.set_ylim(
+            (
+                ax1.get_ylim()[0] - 0.05 * (ax1.get_ylim()[1] - ax1.get_ylim()[0]),
+                ax1.get_ylim()[1],
+            )
+        )
+        ax1.set_xlim(y_mesh.min(), y_mesh.max())
         ax1.set_xticks([])
         ax1.legend()
 
-        ax2 = fig.add_subplot(212)
-        ax2.plot(
-            y_mesh,
-            jax.vmap(self.approximations[Method.UNSCENTED].pdf)(y_mesh),
-            label="unscented",
-            linestyle="-",
-        )
+        ax2 = fig.add_subplot(312)
 
         ax2.plot(
             y_mesh,
             jax.vmap(self.approximations[Method.LINEAR].pdf)(y_mesh),
             label="linear",
-            linestyle="--",
+            linestyle="-",
         )
 
         ax2.plot(
             y_mesh,
             jax.vmap(self.approximations[Method.MEAN_FIELD].pdf)(y_mesh),
             label="mean-field",
-            linestyle="dotted",
+            linestyle="--",
         )
-
+        ax2.set_xticks([])
+        ax2.set_xlim(ax1.get_xlim())
         ax2.set_ylim(ax1.get_ylim())
         ax2.legend()
 
-        ax2.set_xlabel("$y$")
+        ax3 = fig.add_subplot(313)
+        ax3.plot(
+            y_mesh,
+            jax.vmap(self.approximations[Method.UNSCENTED0].pdf)(y_mesh),
+            label="unscented'95",
+            linestyle="-",
+        )
+        ax3.plot(
+            y_mesh,
+            jax.vmap(self.approximations[Method.UNSCENTED1].pdf)(y_mesh),
+            label="unscented'02",
+            linestyle="--",
+        )
+        ax3.set_xlim(ax1.get_xlim())
+        ax3.set_ylim(ax1.get_ylim())
+        ax3.legend()
+
+        ax3.set_xlabel("$y$")
 
         filename = f"distributions/{str(self)}.pdf"
         fig.savefig(base_path + filename)
@@ -438,13 +490,13 @@ class RandomNeuralNetworkTestCase:
 
 
 def generate_networks():
-    for topology in Topology:
+    for architecture in Architecture:
         for weights in Weights:
             for activation in Activation:
                 logger.info(
-                    f"Generating network: topology={topology.name}, weights={weights.name}, activation={activation.name}"
+                    f"Generating network: architecture={architecture.name}, weights={weights.name}, activation={activation.name}"
                 )
-                yield RandomNeuralNetwork(topology, weights, activation)
+                yield RandomNeuralNetwork(architecture, weights, activation)
 
 
 if __name__ == "__main__":
@@ -488,7 +540,7 @@ if __name__ == "__main__":
                 f.write(r"\end{figure}")
 
                 f.write("\\clearpage\n")
-                f.flush()
+            f.flush()
 
             # Uncomment to process only one network for testing
             # break
