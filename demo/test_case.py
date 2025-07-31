@@ -330,31 +330,38 @@ class RandomNeuralNetworkTestCase:
 
     def write_table(self):
         DISTRIBUTION = "distribution"
-        MEAN = r"\(\mu - \expect Y_0\)"
-        VARIANCE = r"\(\sigma^2/\Var Y_0\)"
-        WASSERSTEIN = r"\(d_{\mathrm W}(\cdot, Y_0)\)"
+        MEAN = r"\(\dfrac{\mu - \expect Y_0}{\sqrt{\Var Y_0}}\)"
+        VARIANCE = r"\(\dfrac{\sigma^2}{\Var Y_0}\)"
+        WASSERSTEIN = r"\(\dfrac{d_{\mathrm W}(\cdot, Y_0)}{\sqrt{\Var Y_0}}\)"
         KL = r"\(D_{\mathrm{KL}}(\cdot \| Y_1)\)"
+
+        sorted_data = np.sort(self.monte_carlo_outputs)
+
+        def wasserstein(dist):
+            theoretical_quantiles = scipy.stats.norm(
+                loc=dist.μ.item(), scale=dist.Σ.item() ** 0.5
+            ).ppf((np.arange(self.num_samples) + 0.5) / (self.num_samples))
+            return (
+                np.abs(theoretical_quantiles - sorted_data).mean()
+                * self.pseudo.Σ.item() ** -0.5
+            )
+
         df = pd.DataFrame(
             [
                 {
                     DISTRIBUTION: r"pseudo-true (\(Y_1\))",
                     MEAN: 0,
                     VARIANCE: 1,
-                    WASSERSTEIN: scipy.stats.wasserstein_distance(
-                        self.monte_carlo_outputs.reshape(-1),
-                        self.pseudo.qmc(self.num_samples).reshape(-1),
-                    ).item(),
+                    WASSERSTEIN: wasserstein(self.pseudo),
                     KL: 0,
                 },
                 *[
                     {
                         DISTRIBUTION: name,
-                        MEAN: dist.μ.item() - self.pseudo.μ.item(),
+                        MEAN: (dist.μ.item() - self.pseudo.μ.item())
+                        / np.sqrt(self.pseudo.Σ.item()),
                         VARIANCE: dist.Σ.item() / self.pseudo.Σ.item(),
-                        WASSERSTEIN: scipy.stats.wasserstein_distance(
-                            self.monte_carlo_outputs.reshape(-1),
-                            dist.qmc(self.num_samples).reshape(-1),
-                        ).item(),
+                        WASSERSTEIN: wasserstein(dist),
                         KL: self.pseudo.kl_divergence(dist).item(),
                     }
                     for name, dist in [
@@ -414,7 +421,7 @@ class RandomNeuralNetworkTestCase:
             ),
             3000,
         ).reshape(-1)
-        fig = Figure(dpi=300, figsize=(5, 6), constrained_layout=1)
+        fig = Figure(dpi=300, figsize=(5, 5), constrained_layout=1)
         ax1 = fig.add_subplot(311)
         ax1.hist(
             self.monte_carlo_outputs,

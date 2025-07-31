@@ -45,6 +45,7 @@
 % to avoid loading the natbib package, add option nonatbib:
 %    \usepackage[nonatbib]{neurips_2025}
 
+\usepackage{siunitx}
 \usepackage[utf8]{inputenc} % allow utf-8 input
 \usepackage[T1]{fontenc}    % use 8-bit T1 fonts
 \usepackage{hyperref}       % hyperlinks
@@ -112,6 +113,7 @@ hyperref, cancel, bm}
 % \usepackage[margin=1in]{geometry}
 \usepackage{algorithm,algpseudocode, algorithmicx}
 \newtheorem{definition}{Definition}
+\newtheorem*{definition*}{Definition}
 \newtheorem{proposition}{Proposition}
 \newtheorem{conjecture}{Conjecture}
 \newtheorem{theorem}{Theorem}
@@ -140,7 +142,6 @@ hyperref, cancel, bm}
     The exact mean vector and variance-covariance matrix of a single-hidden-layer neural network (with the right choice of activation function) can be computed explicitly provided that the input is Gaussian.
     An extension to deep networks is surprisingly effective.
 \end{abstract}
-
 
 \section{Introduction}
 A neural network, e.g.~one trained by supervised learning, maps a single input to a single output.
@@ -239,6 +240,7 @@ Let \(\sigma : \mathbb R \to \mathbb R\) be an activation function.
 We will often omit the ``type annotations'' indicating the input and output dimensions when it is only necessary to imply that they are compatible.
 
 \begin{definition}
+    \label{def:neural-network}
     A neural network with \(\ell \) layers is the function \(f: \mathbb R^{n_x} \to \mathbb R^{n_y}\) defined by
     \begin{align*}
         f(x) &= f^\ell(x) \\
@@ -247,20 +249,29 @@ We will often omit the ``type annotations'' indicating the input and output dime
     \end{align*}
 \end{definition}
 
-\subsection{Problem}
-\label{sec:problem}
+% \subsection{Problem}
+% \label{sec:problem}
 \begin{problem}
+    \label{prob:problem}
     Let \(f\) be a neural network with \(\ell\) layers.
     Given \(X \sim \mathcal N(\mu, \Sigma)\), characterize the distribution of \(Y_0 = f(X)\).
 \end{problem}
 
+
+\section{Methods}
+The true distribution was defined to be \(Y_0\).
+We define \(Y_1\) to be the pseudo-true distribution, \(\mathcal N(\expect Y_0, \Cov Y_0)\), which may be interepreted as the minimum-KL divergence Gaussian approximation to \(Y_0\) or the moment matching approximation.
+The numerical results of our method \(Y\) will be compared to a mean-field approximation, an linearized approximation, and two unscented approximations.
+We introduce them in turn.
+
+\subsection{Our analytic method \(Y_\mathrm{ana}\)}
 Because this problem is intractable in general, our approach is to replace it with the proxy:
 
 \begin{definition}
     Let \(f\) be a neural network with \(\ell\) layers.
-    Given \(X \sim \mathcal N(\mu, \Sigma)\), the layer-wise Gaussian approximation of \(f(X)\), denoted \(Y = \Normal f(X)\), is the random variable such that
+    Given \(X \sim \mathcal N(\mu, \Sigma)\), the layer-wise Gaussian approximation of \(f(X)\), denoted \(Y_\mathrm{ana} = \Normal f(X)\), is the random variable defined by
     \begin{align*}
-        Y &=  Y^\ell\\
+        Y_\mathrm{ana} &=  Y^\ell\\
         Y^k &= \normal g(Y^{k-1}; A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
         Y^0 &= X
     \end{align*}
@@ -268,13 +279,7 @@ Because this problem is intractable in general, our approach is to replace it wi
 
 In Appendix~\ref{app:theoretical-guarantees}, we give a theoretical bound on the dissimilarity between the laws of \(Y_0\) and \(Y\).
 
-An auxiliary distribution used for benchmarking is:
-\begin{definition}
-    Let \(f \) be a neural network with \(\ell\) layers.
-    Given \(X \sim \mathcal N(\mu, \Sigma)\), the pseudo-true Gaussian approximation of \(f(X)\) is \(Y_1 = \normal f(X)\).
-\end{definition}
-
-\section{Methods}
+In order to compute the 
 It turns out that only three transcendental functions are needed to compute the first two moments of the pushforward measure of a Gaussian distribution under a layer defined by Def.~\ref{def:layer-function}.
 \begin{definition}
   \label{def:moment-maps}
@@ -360,40 +365,150 @@ It turns out that only three transcendental functions are needed to compute the 
 These are five-variable transcendental functions that are too complex to be represented by a look-up table, and thus need to be computed analytically for a strategic choice of activation function \(\sigma\).
 We work them out for the probit sigmoid activation in App.~\ref{app:probit} and for the sine activation in App.~\ref{app:sine}.
 
+\subsection{The mean-field approximation \(Y_\mathrm{mfa}\)}
+Following \citet{huber_bayesian_2020, wagner_kalman_2022,akgul_deterministic_2025}, we define the mean-field analytic approximation by assuming that neurons in the same hidden layer are independent:
+\begin{align*}
+  Y_\mathrm{mfa} &=  Y^\ell\\
+  Y^k &= \mathcal N(\mu^k, \Sigma^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+  \mu^k &= \expect g(Y^{k-1}; A^k, b^k, C^k, d^k)
+  \\
+  \Sigma^k_{ij} &= \begin{cases}
+    \sbr{\Cov g(Y^{k-1}; A^k, b^k, C^k, d^k)}_{ij}, & i=j
+    \\
+    0, &\text{else}
+  \end{cases}
+  \\
+  Y^0 &= X
+\end{align*}
+
+\subsection{The linear approximation \(Y_\mathrm{lin}\)}
+Following \citet{titensky_uncertainty_2018, nagel_kalman-bucy-informed_2022,petersen_uncertainty_2024, jungmann_analytical_2025}, we define the linear approximation as the asymptotically Normal output distribution (according to the delta method) in the limit of small input variance:
+\begin{align*}
+  Y_\mathrm{lin} &= \mathcal N(f(\expect X), \nabla f(\expect X) \Cov X \nabla f(\expect X)^\intercal)
+\end{align*}
+
+\subsection{The unscented approximation(s) \(Y_\mathrm{u95}\) and \(Y_\mathrm{u02}\)}
+The unscented transformation, a quadrature rule for approximating a probability measure on \(\mathbb{R}^n\) by \(2n + 1\) point masses whose locations (called sigma points) and weights satisfy certain first- and second-order moment matching conditions, was originally developed to improve upon linearization in nonlinear Kalman filtering \citep{julier_new_1995,julier_new_1997,julier_new_2000,julier_scaled_2002,wan_unscented_2000,julier_unscented_2004}.
+
+But it is more correct to say that there are (at least) two unscented transformations: a one-parameter family, which we refer to as Unscented'95; and a three-parameter family, which we refer to as Unscented'02.
+\begin{itemize}
+  \item Unscented'95 \citep{julier_new_1995,julier_new_1997,julier_new_2000}, used in \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015}, is a one-parameter family of unscented transformations, parameterized by a single shape hyperparameter \(\kappa\).
+  \item Unscented'02 \citep{julier_scaled_2002,wan_unscented_2000} is a three-parameter family of unscented transformations, parameterized by three shape hyperparameters \((\alpha, \beta, \kappa)\).
+  This version, with default values tuned to be significantly more localized in \(X\)-space than Unscented'95, is usually called ``the'' unscented transformation in current filtering scholarship \cite{jiang_new_2025} and tooling \cite{ljung_unscentedkalmanfilter_2025}.
+\end{itemize}
+
+\section{Explicit adversariality}
+One can imagine adversarial instances of neural mappings \(Y=f(X)\) that make all of the methods look arbitrarily bad.
+Even those these instances are contrived, they shed light on the relative strengths and weaknesses of the methods.
+
+\begin{example}[for \(Y_\mathrm{ana}\)]
+  Consider the following network, where input \(X\), output \(Y\), and hidden \(Y^1\) are scalars; \(u(x) = \bm{1}_{x \geq 0}\) is the Heaviside function e.g.~obtained as a limit of sigmoids; and \(\alpha\) is a weight.
+  \begin{align*}
+    Y &= \alpha u(Y^1 - 3)
+    \\
+    Y^1 &= 2 u(X)
+    \\
+    X &\sim \mathcal N(0, 1)
+  \end{align*}
+  At the hidden layer, \(Y^1 \) is approximated by \(\mathcal N(1, 1)\).
+  Therefore \(Y_\mathrm{ana}\) is approximated by some nondegenerate Normal distribution, scaled by \(\alpha\).
+  By increasing \(\alpha\), we can make \(Y_\mathrm{ana}\) arbitrarily wrong:
+  \(Y_0\) is identically zero because \(Y^1 -2 \) is always negative.
+
+  
+\end{example}
+
+This intricate example suggests that for \(Y_\mathrm{ana}\) to fail, there needs to be a conspiracy between non-normality (here, \(Y^1\)) and strong nonlinearity (here, from \(Y^1\) to \(Y\)).
+It is easier to fool the rival approximations, as the following examples show.
+On all of these, the mean and variance of \(Y_\mathrm{ana}\) are exact.
+We have forgone tables of results which would show errors on the order of machine epsilon.
+
+\begin{example}[for \(Y_\mathrm{mfa}\)]
+  Consider the   following (linear) network, where input \(X\) is a scalar, output \(Y\) is a scalar, and hidden \(Y^1\in \mathbb{R}^m\).
+  \begin{align*}
+    Y &= \frac{1}{m} \sum_{i=1}^m Y^1_i
+    \\
+    Y^1_i &= X
+    \\
+    X &\sim \mathcal N(0, 1)
+  \end{align*}
+  The mean-field approximation treats each \(Y_i^1\) as independent \(\mathcal N(0, 1)\), so it concludes \(Y^1\sim \mathcal N(0, m^{-1})\).
+  But \(Y\) is identical to \(X\sim \mathcal N(0, 1)\).
+  So by increasing \(m\), we can make \(Y_\mathrm{mfa}\) arbitrarily wrong.
+\end{example}
+
+\begin{example}[for \(Y_\mathrm{lin}\)]
+  Consider the network \(Y = \sin(X)\), where \(X \sim \mathcal N ({0, \sigma^2})\).
+  Then \(Y_\mathrm{lin} = \mathcal{N}(0, \sigma^2)\).
+  But in fact \(\Var Y = (1 - e^{-\sigma^2})/2\) which tends to \(1/2\) for large \(\sigma^2\).
+  So by increasing \(\sigma^2\), we can make \(Y_\mathrm{lin}\) arbitrarily wrong.
+\end{example}
+
+
+
+\begin{example}[for \(Y_\mathrm{u95}\) and \(Y_\mathrm{u02}\)]
+  Take a single-hidden-layer network with strong variation away from the sigma-points of the unscented transformation will fool \(Y_\mathrm{u95}\) and \(Y_\mathrm{u02}\).
+  Suppose that \(X \sim \mathcal N(0, 1)\), and the sigma points are \(X \in \{-\alpha, 0, \alpha\}\) for some \(\alpha > 0\).
+  Then on the neural network \(Y = \sin(\alpha^{-1}\pi X)\), \(Y_\mathrm{u95}\) and \(Y_\mathrm{u02}\) will be identically zero.
+\end{example}
+
+
 \section{Numerical Results}
-\subsection{Interpolation regime}
-\label{sec:interpolation-regime}
-Much of the effectiveness of overparameterized (wide and deep) neural networks is now understood by reference to an ``interpolation regime'' in which a neural network is supervised to fit training data exactly while simultaneously minimizing a regularization norm \citep{muthukumar_harmless_2020,schaeffer_double_2023,belkin_reconciling_2019}.
-In this section, we train a neural network \(f\) with 121,201 parameters to interpolate \(y = f(x)\) for twenty pairs \((x, y)\), where we have randomly drawn \((x, y) \sim \mathcal N(0_2, I_2)\).
-Details on the training process are provided in App.~\ref{app:interpolation-regime}.
-The training data and the resulting function \(f\) are shown in Fig.~\ref{fig:interpolation-regime-function}.
+\subsection{Random networks}
+\label{sec:random-networks}
+We apply our method and its rivals to 24 different ensembles of random neural networks:
+\begin{itemize}
+  \item network architecture \( \in \{\text{small}, \text{wide}, \text{deep}\} \)
+  \item weights \( \in \{\text{initialized}, \text{trained}\} \)
+  \item activation function \( \in \{\text{probit}, \text{probit residual}, \text{sine}, \text{sine residual}\} \)
+\end{itemize}
+For each ensemble, we sample one neural network and evaluate the goodness of approximation of the output distribution for input distributions: 
+\begin{itemize}
+  \item variance \( \in \{\text{small}, \text{medium}, \text{large}\} \).
+\end{itemize}
+In each case we compare the distributions of:
+\begin{itemize}
+  \item \(Y_0\), the true distribution
+  \item \(Y_1\), the pseudo-true Gaussian distribution
+  \item \(Y\), the analytic layer-wise Gaussian approximation (our method)
+  \item mean-field: applying our method for moment propagation and setting off-diagonal layer covariances to zero
+  \item linear: linearization-based moment propagation
+  \item unscented'95: unscented transform of the whole network using \(\kappa=2\)
+  \item unscented'02: unscented transform of the whole network using \(\alpha=0.001, \beta=2, \kappa=2\)
+\end{itemize}
+See Appendix~\ref{app:random-neural-networks} for a description of the ensembles, the Monte Carlo methodology, and the full results.
 
-The input is \(X \sim \mathcal N(0, 1)\).
-The distributions \(Y\), \(Y_0\), and \(Y_1\) follow \S\ref{sec:problem}.
-Our approximation beats the other approximations by a mile on all counts: closest mean to \(Y_1\), closest variance to \(Y_1\), least Wasserstein distance to \(Y_0\), and least Kullback-Leibler divergence to \(Y_1\) (Table~\ref{tab:interpolated-nominal-variance}).
-These figures are consistent with inspection of the probability distributions (Fig.~\ref{fig:interpolated-regime-pdf}).
+% Much of the effectiveness of overparameterized (wide and deep) neural networks is now understood by reference to an ``interpolation regime'' in which a neural network is supervised to fit training data exactly while simultaneously minimizing a regularization norm \citep{muthukumar_harmless_2020,schaeffer_double_2023,belkin_reconciling_2019}.
+% In this section, we train a neural network \(f\) with 121,201 parameters to interpolate \(y = f(x)\) for twenty pairs \((x, y)\), where we have randomly drawn \((x, y) \sim \mathcal N(0_2, I_2)\).
+% Details on the training process are provided in App.~\ref{app:interpolation-regime}.
+% The training data and the resulting function \(f\) are shown in Fig.~\ref{fig:interpolation-regime-function}.
 
-Details on the Monte Carlo simulation method and the summary statistics are given in App.~\ref{app:monte-carlo}.
+% The input is \(X \sim \mathcal N(0, 1)\).
+% The distributions \(Y\), \(Y_0\), and \(Y_1\) follow \S\ref{sec:problem}.
+% Our approximation beats the other approximations by a mile on all counts: closest mean to \(Y_1\), closest variance to \(Y_1\), least Wasserstein distance to \(Y_0\), and least Kullback-Leibler divergence to \(Y_1\) (Table~\ref{tab:interpolated-nominal-variance}).
+% These figures are consistent with inspection of the probability distributions (Fig.~\ref{fig:interpolated-regime-pdf}).
 
-\begin{table}
-  \begin{center}
-    \input{tables/interpolated-nominal-variance}
-  \end{center}
-  \caption{\label{tab:interpolated-nominal-variance} Normal distributions arising from the problem in \S\ref{sec:interpolation-regime}.}
-\end{table}
+% Details on the Monte Carlo simulation method and the summary statistics are given in App.~\ref{app:monte-carlo}.
 
-\begin{figure}
-  \centering
-  \includegraphics[]{figures/interpolated-function.pdf}
-  \caption{Training data (dots) and learned function (solid line) in the interpolation regime.}
-  \label{fig:interpolation-regime-function}
-\end{figure}
+% \begin{table}
+%   \begin{center}
+%     \input{tables/interpolated-nominal-variance}
+%   \end{center}
+%   \caption{\label{tab:interpolated-nominal-variance} Normal distributions arising from the problem in \S\ref{sec:interpolation-regime}.}
+% \end{table}
 
-\begin{figure}
-  \centering
-  \includegraphics[]{figures/interpolated-nominal-variance-density.pdf}
-  \caption{\label{fig:interpolated-regime-pdf} Histogram of \(Y_0\) and probability density functions of its approximants in \S\ref{sec:interpolation-regime}.}
-\end{figure}
+% \begin{figure}
+%   \centering
+%   \includegraphics[]{figures/interpolated-function.pdf}
+%   \caption{Training data (dots) and learned function (solid line) in the interpolation regime.}
+%   \label{fig:interpolation-regime-function}
+% \end{figure}
+
+% \begin{figure}
+%   \centering
+%   \includegraphics[]{figures/interpolated-nominal-variance-density.pdf}
+%   \caption{\label{fig:interpolated-regime-pdf} Histogram of \(Y_0\) and probability density functions of its approximants in \S\ref{sec:interpolation-regime}.}
+% \end{figure}
 
 \section{Computational complexity}
 \subsection{Theoretical}
@@ -417,7 +532,9 @@ Do {\bf not} include this section in the anonymized submission, only in the fina
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \appendix
-
+\clearpage
+\tableofcontents
+\clearpage
 \section{Derivation of uncertainty propagation formulas for probit activation}
 \label{app:probit}
 In this appendix, we derive the \(M_\sigma\), \(K_\sigma\), and
@@ -859,52 +976,114 @@ Then
 \end{theorem}
 
 
-\section{Training details for \S\ref{sec:interpolation-regime}}
-\label{app:interpolation-regime}
+% \section{Training details for \S\ref{sec:interpolation-regime}}
+% \label{app:interpolation-regime}
 
-\subsection{Network Architecture}
-The neural network is implemented using JAX and Equinox, with the following architecture:
-\begin{itemize}
-    \item Input layer: 1D input (scalar)
-    \item First hidden layer: 200 neurons with sinusoidal activation ($\sigma(x) = \sin(x)$)
-    \item Three residual hidden layers: 200 neurons each with sinusoidal activation
-    \item Output layer: Linear layer with 1D output (scalar)
-\end{itemize}
+% \subsection{Network Architecture}
+% The neural network is implemented using JAX and Equinox, with the following architecture:
+% \begin{itemize}
+%     \item Input layer: 1D input (scalar)
+%     \item First hidden layer: 200 neurons with sinusoidal activation ($\sigma(x) = \sin(x)$)
+%     \item Three residual hidden layers: 200 neurons each with sinusoidal activation
+%     \item Output layer: Linear layer with 1D output (scalar)
+% \end{itemize}
 
-\subsection{Training Details}
-The training process follows these specifications:
-\begin{itemize}
-    \item Training samples: 10 pairs $(x, y)$ where $x, y \sim \mathcal{N}(0, 1)$
-    \item Loss function: Mean squared error (MSE) between predicted and target outputs
-    \item Optimization: AdamW optimizer with learning rate $10^{-5}$
-    \item Training duration: 10,000 iterations
-    \item Batch size: Full batch (all 10 samples used in each update)
-    \item Weight initialization:
-    \begin{itemize}
-        \item First layer: Zero matrix for weights, uniform random for biases
-        \item Hidden layers: Random orthogonal projection for weights, uniform random for biases
-        \item Output layer: Zero initialization for both weights and biases
-    \end{itemize}
-\end{itemize}
+% \subsection{Training Details}
+% The training process follows these specifications:
+% \begin{itemize}
+%     \item Training samples: 10 pairs $(x, y)$ where $x, y \sim \mathcal{N}(0, 1)$
+%     \item Loss function: Mean squared error (MSE) between predicted and target outputs
+%     \item Optimization: AdamW optimizer with learning rate $10^{-5}$
+%     \item Training duration: 10,000 iterations
+%     \item Batch size: Full batch (all 10 samples used in each update)
+%     \item Weight initialization:
+%     \begin{itemize}
+%         \item First layer: Zero matrix for weights, uniform random for biases
+%         \item Hidden layers: Random orthogonal projection for weights, uniform random for biases
+%         \item Output layer: Zero initialization for both weights and biases
+%     \end{itemize}
+% \end{itemize}
 
-\subsection{Implementation Details}
-The implementation uses JAX's just-in-time compilation and automatic differentiation capabilities:
-\begin{itemize}
-    \item Uses Equinox for neural network implementation and training utilities
-    \item Employs JIT compilation for the training step to improve performance
-    \item Implements batched computation using JAX's vectorization capabilities
-    \item Training is performed on CPU (though the code supports GPU acceleration)
-\end{itemize}
+% \subsection{Implementation Details}
+% The implementation uses JAX's just-in-time compilation and automatic differentiation capabilities:
+% \begin{itemize}
+%     \item Uses Equinox for neural network implementation and training utilities
+%     \item Employs JIT compilation for the training step to improve performance
+%     \item Implements batched computation using JAX's vectorization capabilities
+%     \item Training is performed on CPU (though the code supports GPU acceleration)
+% \end{itemize}
 
-\subsection{Training Process}
-The network is trained to minimize the mean squared error between predictions and targets:
-\[
-\frac{1}{N}\sum_{i=1}^N (f_\theta(x_i) - y_i)^2
-\]
-where $f_\theta$ represents the neural network with parameters $\theta$, and $(x_i, y_i)$ are the training samples. The training process uses the full dataset for each update.
+% \subsection{Training Process}
+% The network is trained to minimize the mean squared error between predictions and targets:
+% \[
+% \frac{1}{N}\sum_{i=1}^N (f_\theta(x_i) - y_i)^2
+% \]
+% where $f_\theta$ represents the neural network with parameters $\theta$, and $(x_i, y_i)$ are the training samples. The training process uses the full dataset for each update.
 
 \section{Monte Carlo simulation and analysis}
 \label{app:monte-carlo}
+
+
+
+\clearpage
+\section{Numerical results for random neural networks}
+\label{app:random-neural-networks}
+This appendix supplements \S\ref{sec:random-networks} and specifies the 24 ensembles of random neural networks and the three ensembles of inputs used to produce the \(72 = 24 \times 3\) test cases that follow.
+The neural networks in this example are parameterized as in Def.~\ref{def:neural-network}.
+Let \(d_\mathrm{hidden}\) and \(w_\mathrm{hidden}\) be the depth and width of the hidden layers, respectively.
+A random neural network \(f:\mathbb{R} \to \mathbb{R}\) is specified with \(d_\mathrm{hidden} + 1\) layers.
+The output layer is linear, with weights \(C^{d_\mathrm{hidden}+1}\) and biases \(d^{d_\mathrm{hidden}+1}\).
+The first hidden layer has \(C^1 = 0_{w_\mathrm{hidden} \times 1}\), \(d^1 = 0_{w_\mathrm{hidden} \times 1}\).
+The four degrees of freedom in the test cases are:
+\begin{description}
+  \item[architecture] 
+  \begin{itemize}
+    \item if architecture = small, then \(d_\mathrm{hidden} = 2\), \(w_\mathrm{hidden} = 50\);
+    \item if architecture = wide, then \(d_\mathrm{hidden} = 2\), \(w_\mathrm{hidden} = 400\);
+    \item if architecture = deep, then \(d_\mathrm{hidden} = 8\), \(w_\mathrm{hidden} = 100\).
+  \end{itemize}
+  \item[weights]
+  \begin{itemize}
+    \item if weights = initialized:
+    \begin{itemize}
+      \item \(A\) matrices are initialized with i.i.d.~Gaussian entries having mean zero and variance equal to the reciprocal of the number of columns
+      \item if \(\text{activation} \in \{\text{probit}, \text{probit residual}\}\), then \(b\) vectors are initialized with indepedently sampled entries from \(\mathcal N(0, 1)\)
+      \item if \(\text{activation} \in \{\text{sine}, \text{sine residual}\}\), then \(b\) vectors are initialized with indepedently sampled entries from \(\mathcal U(-\pi, \pi)\)
+      \item if \(\text{activation} \in \{\text{probit}, \text{sine}\}\), then \(C\) matrices are initialized to the zero matrix.
+      \item if \(\text{activation} \in \{\text{probit residual}, \text{sine residual}\}\), then square \(C\) matrices are initialized to the identity matrix, and all other \(C\) matrices are initialized to the zero matrix.
+      \item \(d\) vectors are initialized to the zero vector.
+    \end{itemize}
+    \item if weights = trained, the following initialization as above, the neural network is trained to minimize the mean squared error loss on a pseudorandomly generated dataset of ten \((x, y)\) samples drawn from \(\mathcal N(0, 1)\).
+    Training consists of using the AdamW optimizer \citep{loshchilov_decoupled_2019} with a learning rate of \(10^{-5}\)  until the loss is less than \(10^{-8}\).
+    Implementation due to Optax, \citet{deepmind_deepmind_2020}
+  \end{itemize}
+  \item[activation function] 
+  \begin{itemize}
+    \item if \(\text{activation} \in \{\text{probit}, \text{probit residual}\}\), then \(\sigma(x) = 2\Phi(x) - 1\) where \(\Phi\) is the cumulative distribution function of the standard normal distribution
+    \item if \(\text{activation} \in \{\text{sine}, \text{sine residual}\}\), then \(\sigma(x) = \sin(x)\)
+  \end{itemize}
+  \item[variance]
+  \begin{itemize}
+    \item if variance = small, then \(X \sim \mathcal N(0, 10^{-4})\)
+    \item if variance = medium, then \(X \sim \mathcal N(0, 1)\)
+    \item if variance = large, then \(X \sim \mathcal N(0, 10^4)\)
+  \end{itemize}
+\end{description}
+
+For the ``true distribution'' of \(Y_0=f(X)\) we use \(N=2^{20}\) quasi-Monte Carlo samples \citep{virtanen_scipy_2020} which are generally expected to result in errors of order \(N^{-1}\), an order of magnitude smaller than reported precision.
+The Wasserstein distance between a Normal distribution and \(Y_0\) is computed by
+\begin{align*}
+  d_\mathrm{W}(\mathcal N(\mu, \sigma^2), Y_0) 
+  &\approx \frac{1}{N}\sum_{i=1}^N \left|y_{(i)} - Q\del{\frac{i -1/2}{N}}\right|
+\end{align*}
+where \(\{y_{(i)}\}_{i=1}^N\) are the quasi-Monte Carlo samples of \(Y_0\) sorted in ascending order, and \(Q\) is the quantile function of \(\mathcal N(\mu, \sigma^2)\).
+When plotting distributions, we show \(Y_0\) using a histogram with 50 bins.
+The vertical axes within a figure have the same density scale.
+The horizontal axes also have the same scale, and are scaled to include the 0.5th (99.5th) percentiles of the quasi-Monte Carlo samples of \(Y_0\), or the mean minus (plus) three standard deviations of \(Y_1\), whichever is smaller (greater).
+
+The entire suite of 72 test cases takes (including initialization, training, quasi-Monte Carlo, and reporting) about 24 minutes
+on a laptop, with most of the time spent on training (on a Nvidia T1200 GPU).
+\input{generated/generated.tex}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
