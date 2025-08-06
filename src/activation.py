@@ -110,21 +110,29 @@ class Sinusoid(Activation):
 
 
 class NormalCDF(Activation):
+    offset: float = -1
+    scale: float = 2
+
     def __call__(self, x):
-        return 2 * Φ(x) - 1
+        return self.offset + self.scale * Φ(x)
 
     def M(self, mean, var):
         return self.__call__(mean / (1 + var) ** 0.5)
 
     def K(self, mean_1, mean_2, var_1, var_2, covariance):
-        return 4 * NormalCDF.Φ_2_increment_quad(
+        return self.scale**2 * NormalCDF.Φ_2_increment_quad(
             mean_1 / (1 + var_1) ** 0.5,
             mean_2 / (1 + var_2) ** 0.5,
             covariance / ((1 + var_1) ** 0.5 * (1 + var_2) ** 0.5),
         )
 
     def L(self, mean_1, mean_2, var_1, var_2, covariance):
-        return 2 * covariance * (1 + var_1) ** (-0.5) * ϕ(mean_1 / (1 + var_1) ** 0.5)
+        return (
+            self.scale
+            * covariance
+            * (1 + var_1) ** (-0.5)
+            * ϕ(mean_1 / (1 + var_1) ** 0.5)
+        )
 
     @staticmethod
     def gauss_legendre_on_0_x(n, x):

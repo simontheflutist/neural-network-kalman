@@ -254,19 +254,35 @@ if __name__ == "__main__":
             )
         return model_output + prediction_noise_dist
 
-    def inference_loss(x, y, uq_method: UQMethod):
-        return -predict(x, uq_method).lpdf(y)
+    def get_interval(y_pred, confidence=0.95):
+        interval_lower = jax.scipy.stats.norm.ppf(
+            (1 - confidence) / 2, loc=y_pred.μ[0], scale=y_pred.Σ[0, 0] ** 0.5
+        )
+        interval_upper = jax.scipy.stats.norm.ppf(
+            (1 + confidence) / 2, loc=y_pred.μ[0], scale=y_pred.Σ[0, 0] ** 0.5
+        )
+        return interval_lower, interval_upper
+
+    def evaluate_coverage(interval, y):
+        interval_lower, interval_upper = interval
+        covered = (interval_lower < y) & (y < interval_upper)
+        return covered
+
+    def evaluate_interval_width(interval):
+        return interval[1] - interval[0]
 
     @equinox.filter_jit
     def evaluate_uq_method_batch(noisy_x, y, uq_method: UQMethod):
-        values = jax.vmap(inference_loss, in_axes=(0, 0, None))(noisy_x, y, uq_method)
-        mean = values.mean()
-        variance = values.var()
-        return mean, variance
+        predictions = jax.vmap(predict, in_axes=(0, None))(noisy_x, uq_method)
+        nlpdf = jax.vmap(lambda z, y: -z.lpdf(y))(predictions, y)
+        intervals = jax.vmap(get_interval)(predictions)
+        coverage = jax.vmap(evaluate_coverage)(intervals, y)
+        interval_width = jax.vmap(evaluate_interval_width)(intervals)
+        return nlpdf.mean(), coverage.mean(), interval_width.mean()
 
     def evaluate_uq_method(x, y, num_batches, uq_method: UQMethod):
         input_noise = input_noise_dist.qmc(num_samples=len(x) * num_batches)
-        means_and_variances = [
+        means = [
             evaluate_uq_method_batch(
                 x + w,
                 y,
@@ -274,17 +290,13 @@ if __name__ == "__main__":
             )
             for w in tqdm(np.split(input_noise, num_batches))
         ]
-        means, variances = zip(*means_and_variances)
-        mean = np.mean(means)
-        std = (np.mean(variances) + np.var(means)) ** 0.5
-        return mean, std / num_batches
+        return np.mean(means, axis=0)
 
-    for meth in list(UQMethod)[::-1]:
+    for meth, results in [
+        (meth, evaluate_uq_method(test_x, test_y, num_batches=512, uq_method=meth))
+        for meth in list(UQMethod)
+    ]:
+        nlpdf, coverage, interval_width = results
         print(
-            meth,
-            evaluate_uq_method(test_x, test_y, num_batches=512, uq_method=meth),
+            f"{meth.name:<20} {-nlpdf:.3f} & {100*coverage:.1f} & {interval_width:.2f}"
         )
-
-    import IPython
-
-    IPython.embed(colors="neutral")

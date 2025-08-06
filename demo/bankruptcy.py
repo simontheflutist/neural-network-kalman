@@ -9,7 +9,6 @@ import jax
 import matplotlib
 import numpy as np
 import optax
-import pandas as pd
 import sklearn.metrics
 from jax import numpy as jnp
 from matplotlib.figure import Figure
@@ -39,7 +38,6 @@ from unscented import UnscentedTransformMethod
 base_path = "../docs/manuscript/generated/"
 FAST = False
 
-import IPython
 import ucimlrepo
 
 
@@ -53,7 +51,7 @@ def load_data():
             != taiwanese_bankruptcy_prediction.data.features.iloc[0]
         ).any(),
     ]
-    test_features = np.where([("rofit" in c) for c in X.columns])[0]
+    test_features = np.where([("Interest Expense Ratio" in c) for c in X.columns])[0]
     logger.info(f"Test features: {X.columns[test_features]}")
 
     X = X.to_numpy(dtype="float64")
@@ -276,29 +274,29 @@ def get_network():
 
 f = get_network()
 
-logger.info("Computing ROC of train")
-log_probabilities_train = np.array([get_log_probabilities(f(z)) for z in tqdm(train_x)])
-logger.info("Computing ROC of val")
-log_probabilities_val = np.array([get_log_probabilities(f(z)) for z in tqdm(val_x)])
+# logger.info("Computing ROC of train")
+# log_probabilities_train = np.array([get_log_probabilities(f(z)) for z in tqdm(train_x)])
+# logger.info("Computing ROC of val")
+# log_probabilities_val = np.array([get_log_probabilities(f(z)) for z in tqdm(val_x)])
 
-fpr_train, tpr_train, _ = sklearn.metrics.roc_curve(
-    train_y, log_probabilities_train[:, 1]
-)
-fpr_val, tpr_val, _ = sklearn.metrics.roc_curve(val_y, log_probabilities_val[:, 1])
+# fpr_train, tpr_train, _ = sklearn.metrics.roc_curve(
+#     train_y, log_probabilities_train[:, 1]
+# )
+# fpr_val, tpr_val, _ = sklearn.metrics.roc_curve(val_y, log_probabilities_val[:, 1])
 
-roc_auc_train = sklearn.metrics.auc(fpr_train, tpr_train)
-roc_auc_val = sklearn.metrics.auc(fpr_val, tpr_val)
+# roc_auc_train = sklearn.metrics.auc(fpr_train, tpr_train)
+# roc_auc_val = sklearn.metrics.auc(fpr_val, tpr_val)
 
-fig = Figure(figsize=(4, 3), constrained_layout=True)
-ax = fig.add_subplot()
-ax.plot(fpr_train, tpr_train, color="C1", label=f"Train (AUC={roc_auc_train:.3f})")
-ax.plot(fpr_val, tpr_val, color="C2", label=f"Val (AUC={roc_auc_val:.3f})")
-ax.plot([0, 1], [0, 1], "k--")
-ax.set_xlabel("False Positive Rate")
-ax.set_ylabel("True Positive Rate")
-ax.set_title("Receiver Operating Characteristic")
-ax.legend()
-fig.savefig("../docs/manuscript/generated/classification/roc-train.pdf")
+# fig = Figure(figsize=(4, 3), constrained_layout=True)
+# ax = fig.add_subplot()
+# ax.plot(fpr_train, tpr_train, color="C1", label=f"Train (AUC={roc_auc_train:.3f})")
+# ax.plot(fpr_val, tpr_val, color="C2", label=f"Val (AUC={roc_auc_val:.3f})")
+# ax.plot([0, 1], [0, 1], "k--")
+# ax.set_xlabel("False Positive Rate")
+# ax.set_ylabel("True Positive Rate")
+# ax.set_title("Receiver Operating Characteristic")
+# ax.legend()
+# fig.savefig("../docs/manuscript/generated/classification/roc-train.pdf")
 
 
 population = Normal.from_samples(train_x)
@@ -312,34 +310,80 @@ def censor_and_impute(x):
 imputed = [censor_and_impute(z) for z in test_x]
 certain = [z.μ for z in imputed]
 
+
+class UQMethod(Enum):
+    CERTAIN = "certain"
+    ANALYTIC = "analytic"
+    MEAN_FIELD = "mean field"
+    LINEAR = "linear"
+    UNSCENTED_95 = "unscented'95"
+    UNSCENTED_02 = "unscented'02"
+
+
+@equinox.filter_jit
+def get_uq_log_probabilities(z: Normal, method: UQMethod):
+    probability_network = network.Network(
+        *f.layers,
+        network.Layer.create_nonlinear(
+            in_size=1,
+            out_size=1,
+            activation=activation.NormalCDF(offset=0, scale=1),
+            A=jnp.eye(1),
+            b=jnp.zeros(1),
+        ),
+    )
+    if method == UQMethod.CERTAIN:
+        p = probability_network(z.μ)
+    elif method == UQMethod.ANALYTIC:
+        p = probability_network(z, method="analytic", mean_field=False).μ
+    elif method == UQMethod.MEAN_FIELD:
+        p = probability_network(z, method="analytic", mean_field=True).μ
+    elif method == UQMethod.LINEAR:
+        p = probability_network(z, method="linear").μ
+    elif method == UQMethod.UNSCENTED_95:
+        p = probability_network(
+            z, method="unscented", unscented_method=UnscentedTransformMethod.UT0_VECTOR
+        ).μ
+    elif method == UQMethod.UNSCENTED_02:
+        p = probability_network(
+            z, method="unscented", unscented_method=UnscentedTransformMethod.UT1_VECTOR
+        ).μ
+    else:
+        raise ValueError(f"Invalid UQ method: {method}")
+    return [jnp.log(1 - p), jnp.log(p)]
+
+
 log_probabilities_full = np.array([get_log_probabilities(f(z)) for z in tqdm(test_x)])
-log_probabilities_imputed = np.array(
-    [get_log_probabilities(f(z)) for z in tqdm(imputed)]
-)
+log_probabilities_imputed = {
+    method: np.array([get_uq_log_probabilities(z, method) for z in tqdm(imputed)])
+    for method in UQMethod
+}
 log_probabilities_certain = np.array(
     [get_log_probabilities(f(z)) for z in tqdm(certain)]
 )
 
 logger.info("Computing ROC of test")
 fpr_full, tpr_full, _ = sklearn.metrics.roc_curve(test_y, log_probabilities_full[:, 1])
-fpr_imputed, tpr_imputed, _ = sklearn.metrics.roc_curve(
-    test_y, log_probabilities_imputed[:, 1]
-)
+roc_auc_full = sklearn.metrics.auc(fpr_full, tpr_full)
 fpr_certain, tpr_certain, _ = sklearn.metrics.roc_curve(
     test_y, log_probabilities_certain[:, 1]
 )
-
-roc_auc_full = sklearn.metrics.auc(fpr_full, tpr_full)
-roc_auc_imputed = sklearn.metrics.auc(fpr_imputed, tpr_imputed)
 roc_auc_certain = sklearn.metrics.auc(fpr_certain, tpr_certain)
-
 fig = Figure(figsize=(4, 3), constrained_layout=True)
 ax = fig.add_subplot()
-ax.plot(fpr_full, tpr_full, color="C1", label=f"Full (AUC={roc_auc_full:.3f})")
-ax.plot(fpr_imputed, tpr_imputed, color="C2", label=f"UQ (AUC={roc_auc_imputed:.3f})")
-ax.plot(
-    fpr_certain, tpr_certain, color="C3", label=f"Certain (AUC={roc_auc_certain:.3f})"
-)
+ax.plot(fpr_full, tpr_full, label=f"Full (AUC={roc_auc_full:.3f})", linestyle="-.")
+# ax.plot(fpr_certain, tpr_certain, label=f"Certain (AUC={roc_auc_certain:.3f})")
+for method in UQMethod:
+    fpr_imputed, tpr_imputed, _ = sklearn.metrics.roc_curve(
+        test_y, log_probabilities_imputed[method][:, 1]
+    )
+    roc_auc_imputed = sklearn.metrics.auc(fpr_imputed, tpr_imputed)
+
+    ax.plot(
+        fpr_imputed,
+        tpr_imputed,
+        label=f"{method.value} (AUC={roc_auc_imputed:.3f})",
+    )
 ax.plot([0, 1], [0, 1], "k--")
 ax.set_xlabel("False Positive Rate")
 ax.set_ylabel("True Positive Rate")
@@ -349,8 +393,11 @@ fig.savefig("../docs/manuscript/generated/classification/roc-test.pdf")
 
 imputed_normals = jax.vmap(censor_and_impute)(test_x)
 
-logger.info(
-    f"Certain loss: {get_loss(f, jax.vmap(lambda z: z.μ)(imputed_normals), test_y):.3f}"
-)
-logger.info(f"Imputed loss: {get_loss(f, imputed_normals, test_y):.3f}")
-logger.info(f"Full loss: {get_loss(f, test_x, test_y):.3f}")
+for method in UQMethod:
+    log_p0 = log_probabilities_imputed[method][:, 0]
+    log_p1 = log_probabilities_imputed[method][:, 1]
+    loss = (test_y * log_p1 + (1 - test_y) * log_p0).mean()
+    print(f"{method.value} log-prob: {loss:.3f}")
+    # loss = (test_y * np.exp(log_p1) + (1 - test_y) * np.exp(log_p0)).mean()
+    # print(f"{method.value} prob: {loss:.3f}")
+print(f"Full log-prob: {-get_loss(f, test_x, test_y):.3f}")

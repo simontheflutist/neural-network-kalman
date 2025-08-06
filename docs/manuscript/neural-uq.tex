@@ -425,6 +425,7 @@ On all of these, the mean and variance of \(Y_\mathrm{ana}\) are exact.
 We have forgone tables of results which would show errors on the order of machine epsilon.
 
 \begin{example}[for \(Y_\mathrm{mfa}\)]
+  \label{ex:mean-field}
   Consider the   following (linear) network, where input \(X\) is a scalar, output \(Y\) is a scalar, and hidden \(Y^1\in \mathbb{R}^m\).
   \begin{align*}
     Y &= \frac{1}{m} \sum_{i=1}^m Y^1_i
@@ -457,6 +458,21 @@ We have forgone tables of results which would show errors on the order of machin
 \section{Applications}
 \subsection{Random networks}
 \label{sec:random-networks}
+See Appendix~\ref{app:random-neural-networks} for a description of the ensembles, the Monte Carlo methodology, and the full results.
+In most cases, our method is closest to the pseudo-true distribution (in KL divergence).
+A particularly striking example, which we reproduce here in Table~\ref{table:random-neural-networks-small-trained-probit-residual} and Fig.~\ref{fig:random-neural-networks-small-trained-probit-residual}, is the large-variance case of a small network with trained weights and a probit-residual activation function, in which the output distribution is visibly non-normal, but our method is still closest to the pseudo-true distribution by a factor of about 400 in KL divergence.
+
+Many examples; such as the small-variance test case with wide architecture, trained weights, and sine activation; exhibit the underdispersion of the mean-field approximation predicted in Example~\ref{ex:mean-field}.
+It is remarkable that even in the small-variance regime when our method, linearization, and the unscented transformations are all justified by the delta method and asymptotically equivalent, our method is often still closest to the pseudo-true distribution.
+
+\begin{table}[H]\begin{center}\input{generated/tables/RandomNeuralNetworkTestCase(network=small_trained_probit_residual,variance=Variance.LARGE).tex}
+\end{center}
+\caption{\label{table:random-neural-networks-small-trained-probit-residual}Summary statistics for Network(architecture=small, weights=trained, activation=probit residual), variance=large}
+\end{table}\begin{figure}[H]\begin{center}
+\includegraphics{generated/distributions/RandomNeuralNetworkTestCase(network=small_trained_probit_residual,variance=Variance.LARGE).pdf}
+\end{center}
+\caption{\label{fig:random-neural-networks-small-trained-probit-residual}Probability distributions for Network(architecture=small, weights=trained, activation=probit residual), variance=large}
+\end{figure}
 We apply our method and its rivals to 24 different ensembles of random neural networks:
 \begin{itemize}
   \item network architecture \( \in \{\text{small}, \text{wide}, \text{deep}\} \)
@@ -477,7 +493,6 @@ In each case we compare the distributions of:
   \item unscented'95: unscented transform of the whole network using \(\kappa=2\)
   \item unscented'02: unscented transform of the whole network using \(\alpha=0.001, \beta=2, \kappa=2\)
 \end{itemize}
-See Appendix~\ref{app:random-neural-networks} for a description of the ensembles, the Monte Carlo methodology, and the full results.
 
 % Much of the effectiveness of overparameterized (wide and deep) neural networks is now understood by reference to an ``interpolation regime'' in which a neural network is supervised to fit training data exactly while simultaneously minimizing a regularization norm \citep{muthukumar_harmless_2020,schaeffer_double_2023,belkin_reconciling_2019}.
 % In this section, we train a neural network \(f\) with 121,201 parameters to interpolate \(y = f(x)\) for twenty pairs \((x, y)\), where we have randomly drawn \((x, y) \sim \mathcal N(0_2, I_2)\).
@@ -523,38 +538,40 @@ for a set of inputs \(\{x_i\}_{i=1}^N\) and outputs \(\{y_i\}_{i=1}^N\).
 At inference time, the input \(x\) is corrupted to \(\hat X = x + \epsilon\), where \(\epsilon \sim \mathcal N(0, \Sigma_\epsilon)\) is a perturbation with a known distribution.
 We make the prediction
 \begin{align}
-  \hat Y &= f(\hat X) + \mathcal N(0, \sigma^2)
+  \hat Y \mid \hat X &= f(\hat X) + \mathcal N(0, \sigma^2)
   \intertext{which we approximate by}
-  \hat Y &\approx \mathcal N(\expect(f(X) \mid \hat X), \sigma^2 + \Var(f(X) \mid \hat X)).
+  \hat Y \mid \hat X &\approx \mathcal N(\expect(f(x) \mid \hat X), \sigma^2 + \Var(f(x) \mid \hat X)).
 \end{align}
 
 We apply this to the California housing dataset consisting of roughly 20,000 \((x,y)\) pairs, in which \(y\) is the log median house price of a block from the 1990 United States Census, and \(x\) is a vector of eight features of that block consisting of latitude, longitude, and other demographic information.
 At inference time, we corrupt the input \(x\) with a Gaussian noise.
-We report the average negative log probability density of the test \(y\) under the predictive distribution \(\hat Y\) in Table.~\ref{tab:california-housing}.
+We report the average log probability density of the test \(y\) under the predictive distribution \(\hat Y\) in Table.~\ref{tab:california-housing}, as well as coverage and interval width for nominal 95\% confidence intervals.
+The analytic moment propagation method  has the highest log probability density and the closest-to-nominal coverage.
 
 The model specification, training procedure, and Monte Carlo method are detailed in Appendix.~\ref{app:california-housing}.
 
 \begin{table}
   \begin{center}
-    \begin{tabular}{cr}
+    \begin{tabular}{crrrr}
       \toprule
-      Method & avg.~negative log pdf of test data \\
+      Method & log pdf & coverage (\%) & interval width \\
       \midrule
-      {\bfseries analytic} & 1.421 \\
-      mean-field & 1.647 \\
-      linear & 1.851 \\      
-      unscented'95 & 1.458 \\
-      unscented'02 & 2.529 \\
-      certain (\(\Sigma_\epsilon = 0\)) & 4.456 \\
+      certain (\(\Sigma_\epsilon = 0\)) & -4.456 & 49.7 & 1.67 \\
+      \midrule
+      {\bfseries analytic} & -1.421 & 96.0 & 4.06 \\
+      mean-field & -1.647 & 99.8 & 6.87 \\
+      linear & -1.851 & 97.3 & 7.73 \\
+      unscented'95 & -1.458 & 93.6 & 3.89 \\
+      unscented'02 & -2.529 & 99.7 & 18.85 \\
       \bottomrule
     \end{tabular}
   \end{center}
-  \caption{\label{tab:california-housing} Performance of different uncertainty propagation methods on the California housing regression problem.}
+  \caption{\label{tab:california-housing} Performance of different uncertainty propagation methods on the California housing regression problem. Both coverage (closer to 95\% is better) and interval width (smaller is better) are reported for nominal 95\% confidence intervals.}
 \end{table}
 
 \subsection{Inference under missing features: binary classification}
 \label{sec:classification}
-We study the uncertainty quantification problem in which a neural network trained for binary classification on noiseless inputs is used to make predictions on a shifted distribution of noisy inputs.
+We study the uncertainty quantification problem in which a neural network trained for binary classification (Bernoulli regression) is used to make predictions on a shifted distribution of missing features.
 A neural mapping \(f: \mathbb R ^{n} \to \mathbb R\) is trained to maximize the log-likelihood of the generative model
 \begin{align}
 \label{eq:classification-model}
@@ -584,13 +601,14 @@ Afterwards we make the uncertainty-aware prediction
 \begin{align}
   \hat Y \mid \hat X &\sim \operatorname{Bernoulli}(\hat p)
   \\
-  \hat p &\coloneqq \expect\sbr{\Phi(f(x)) \mid \hat X},
-  \intertext{which we approximate by a Gaussian Ansatz on \(f(x)\):}
-  \hat p_\mathrm{uq} &= \Phi\del{\frac{\expect \sbr{f(x) \mid \hat X}}{\sqrt{1 + \Var \sbr{f(x) \mid \hat X}}}}.
-  \intertext{We compare this prediction to the uncertainty-unaware prediction, which uses the point estimate of \(\hat X\):}
-  \hat p_\mathrm{certain} &= \Phi\del{f(\expect \hat X)},
-  \intertext{as well as the full (uncorrupted) feature vector \(x\):}
-  \hat p_\mathrm{full} &= \Phi\del{f(x)}.
+  \hat p &\coloneqq \expect\sbr{\Phi(f(x)) \mid \hat X}.
+  \label{eq:classification-mean}
+  % \intertext{which we approximate by a Gaussian Ansatz on \(f(x)\):}
+  % \hat p_\mathrm{uq} &= \Phi\del{\frac{\expect \sbr{f(x) \mid \hat X}}{\sqrt{1 + \Var \sbr{f(x) \mid \hat X}}}}.
+  % \intertext{We compare this prediction to the uncertainty-unaware prediction, which uses the point estimate of \(\hat X\):}
+  % \hat p_\mathrm{certain} &= \Phi\del{f(\expect \hat X)},
+  % \intertext{as well as the full (uncorrupted) feature vector \(x\):}
+  % \hat p_\mathrm{full} &= \Phi\del{f(x)}.
   % \label{eq:classification-prediction-full}
 \end{align}
 
@@ -598,16 +616,40 @@ Afterwards we make the uncertainty-aware prediction
   \begin{center}
     \includegraphics[]{generated/classification/roc-test.pdf}
   \end{center}
-  \caption{\label{fig:classification-roc-test} ROC curve of different predictions on test data. ``Full'' refers to the true feature vector \(x\), ``Certain'' refers to the point estimate of \(\hat X\), and ``UQ'' refers to the uncertainty-aware prediction.}
+  \caption{\label{fig:classification-roc-test}ROC curve of different predictions on test data in the Taiwanese bankruptcy dataset.}
 \end{figure}
+
+\begin{table}
+  \begin{center}
+    \begin{tabular}{lr}
+      \toprule
+      Method for predicting \(\hat p\) & log probability of correct label \\
+      \midrule
+      full & -0.106 \\
+      certain & -0.225 \\
+      \midrule
+      {\bfseries analytic} & -0.152 \\
+      mean field & -0.170 \\
+      linear & -0.225 \\
+      unscented'95 & -0.168 \\
+      unscented'02 & -0.159 \\
+      \bottomrule
+    \end{tabular}    
+  \end{center}
+  \caption{\label{tab:classification-log-probability}Average log predicted probability (higher is better) of the correct label on test data in the Taiwanese bankruptcy dataset.}
+\end{table}
 
 
 We apply this to the Taiwanese bankruptcy dataset \citep{liang_financial_2016,unknown_taiwanese_2020} in which \(x\) is a vector of 95 financial features of a company and \(y\) is a binary label indicating whether the company is bankrupt.
-We simulate missing data by dropping all but 12 features in the test data and imputing them using linear regression following \eqref{eq:classification-imputation}.
-On test data, the average log probability of the correct label is -0.127 using \(\hat p_\mathrm{certain}\), -0.118 using \(\hat p_\mathrm{uq}\), and -0.106 using \(\hat p_\mathrm{full}\).
-This shows that the uncertainty-aware prediction has better-calibrated probabilities than the uncertainty-unaware prediction, even though they have similar classification performance (Fig.~\ref{fig:classification-roc-test}).
+At inference time, we drop all features except ``Interest Expense Ratio'' and impute the rest of the balance sheet and cash flow features using linear regression following \eqref{eq:classification-imputation}.
 
-We give the details of the model specification, and training procedure in Appendix.~\ref{app:classification}.
+We compare different uncertainty propagation formulas for \eqref{eq:classification-mean}.
+``Certain'' refers to collapsing \(x \mid \hat X\) to a point estimate (ignoring the prediction uncertainty in the imputation step), ``Full'' refers to using the full (no missing features) feature vector \(x\), and the other methods refer to using the uncertainty-aware prediction.
+It is clear that the missing data dramatically degrades the discrimination of \(\hat p\) across all uncertainty propagation methods (Fig.~\ref{fig:classification-roc-test}).
+However, the uncertainty-aware prediction has better-calibrated probabilities (Table.~\ref{tab:classification-log-probability}).
+
+
+We give the details of the model specification and training procedure in Appendix.~\ref{app:classification}.
 
 
 \subsection{Stochastic neural networks}
@@ -619,44 +661,88 @@ Even though the biological similarity is no longer motivating in light of modern
 \end{align}
 where at each artificial neuron, \(U \sim \operatorname{Uniform}(0,1)\) is an independent random variable.
 This way, \(\bm{1}_{U < \Phi(x)}\) has a Bernoulli distribution with parameter \(\Phi(x)\),
-which contributes an additional diagonal variance term to Lemma~\ref{lem:moment-maps}:
-\begin{align*}
-  \begin{split}
-    \del{\Cov g_{\tilde \sigma}(X; A, b, C, d)}_{i, j} &=
-      K_\sigma\del{
-        \mu_i, \mu_j; \nu_{ii}, \nu_{jj}, \nu_{ij}
-      } \\
-      &\quad + L_\sigma\del{
-        \mu_i; \nu_{ii}, \tau_{jj},\kappa_{ij}
-      }
-      + L_\sigma\del{
-        \mu_j; \nu_{jj}, \tau_{ii},\kappa_{ji}
-      } \\
-      &\quad + \tau_{ij}
-      \\
-      &\quad + \delta_{ij} V_{ii}
-  \end{split},
-  \intertext{where \(\sigma(x) = \expect \del{\tilde \sigma(x, U) \mid x} = 2 \Phi(x) - 1\) and}
-  V_{ii} &= \Var\del{\sigma(x, U) \mid x}\\
-  & = 4 \Phi(x) (1 - \Phi(x)).
-\end{align*}
+which contributes an additional diagonal variance term to Lemma~\ref{lem:moment-maps} as we see from applying the Law of Total Covariance:
+\begin{multline}
+  \del{\Cov g_{\tilde \sigma}(X; A, b, C, d)}_{i, j}
+  =
+    \del{\Cov \expect \sbr{g_{\tilde \sigma}(X; A, b, C, d) \mid X}}_{i, j}
+    \\
+    +
+    \del{\expect \Cov \sbr{g_{\tilde \sigma}(X; A, b, C, d) \mid X}}_{i, j}
+\end{multline}
+\begin{align}
+\del{\Cov \expect \sbr{g_{\tilde \sigma}(X; A, b, C, d) \mid X}}_{i, j}
+&= \del{\Cov g_{\sigma}(X; A, b, C, d)}_{i, j}
+% \\
+%   \begin{split}    
+%     &=
+%       K_\sigma\del{
+%         \mu_i, \mu_j; \nu_{ii}, \nu_{jj}, \nu_{ij}
+%       } \\
+%       &\quad + L_\sigma\del{
+%         \mu_i; \nu_{ii}, \tau_{jj},\kappa_{ij}
+%       }
+%       + L_\sigma\del{
+%         \mu_j; \nu_{jj}, \tau_{ii},\kappa_{ji}
+%       } \\
+%       &\quad + \tau_{ij}
+%   \end{split},
+  \intertext{since \(\expect \del{\tilde \sigma(X, U) \mid X} = \sigma(X)\) and}
+  % V_{ii} &= \expect \Var\del{\sigma(x, U) \mid x}\\
+  % & = 4 \Phi(x) (1 - \Phi(x)).
+  \del{\expect \Cov \sbr{g_{\tilde \sigma}(X; A, b, C, d) \mid X}}_{i, j}
+  &=
+    4\delta_{ij}
+    \expect \Var \sbr{\del{g_{\tilde \sigma}(X; A, b, C, d)}_i \mid X}
+    \\
+    &= 4\delta_{ij} \expect \Phi(\xi_i) \del{1 - \Phi(\xi_i)}
+    \\
+    \intertext{where \(\xi_i \sim \mathcal N(\mu_i, \nu_{ii})\).
+    Using Owen's T function, we have}
+    \expect \Phi(\xi_i) \del{1 - \Phi(\xi_i)}
+    &= 2 T\del{
+      \frac{\mu_i}{\sqrt{1 + \nu_{ii}}},
+      \frac{\nu_{ii}}{1 + 2\nu_{ii}}
+    }.
+\end{align}
+\begin{figure}
+  \begin{center}
+    \includegraphics[]{generated/stochastic.pdf}
+  \end{center}
+  \caption{\label{fig:stochastic} Results with stochastic activation.}
+\end{figure}
 
-
-
-% (Braintenberg) deep belief nets
-
-% sigmoid activation 
-
-% Phi tilde
-
-% p(1-p)
-
-% https://github.com/microsoft/BitNet
+Applying this formula to 1 million samples from a stochastic version of the ``deep'' neural network of \S\ref{sec:random-networks} with a constant zero input results in a normal distribution that differs from the pseudo-true distribution by a KL divergence of roughly \(10^{-5}\)
+ and a distribution that very strongly appears normal (Fig.~\ref{fig:stochastic}).
 
 \section{Computational complexity}
-\subsection{Theoretical}
+It is occasionally claimed that propagating a full covariance matrix by moment matching is computationally unjustified, because a covariance matrix scales quadratically with the number of hidden neurons \citep[\S5]{akgul_deterministic_2025}.
+(In fact, propagating a full covariance matrix by linearization scales cubically in the number of hidden neurons.)
+However, the computational complexity of \(Ax + b\) for a single hidden layer is also quadratic in the number of hidden neurons.
+Thus, theoretically, moment matching incurs at most a constant time slowdown compared to point prediction.
+Practically, we can use JAX to count the number of floating point operations (FLOPs), memory I/Os, and transcendental functions in a just-in-time (JIT) compiled version of each algorithm.
+We report these numbers for the architecture=wide, activation=sinusoidal neural network of \S\ref{sec:random-networks} in Table~\ref{tab:complexity}.
+Even though all of these numbers look large, they are a rounding error on a modern CPU or GPU boasting TFLOP throughput.
 
-\subsection{Empirical}
+\begin{table}
+\begin{center}
+  \begin{tabular}{lrrr}
+  \toprule
+  Method & Transcendentals & FLOPs & Bytes accessed\\
+  \midrule
+  no uncertainty & 800 & 642801 & 3881624
+  \\
+  \midrule
+  linear & 1600 & 966004 & 5200120 \\
+  unscented & 2400 & 1928426 & 3920259 \\
+  mean-field & 1603200 & 647691520 & 29574496 \\
+  analytic & 1603200   & 647051136 & 29552096 \\
+  \bottomrule
+  \end{tabular}
+\end{center}
+\caption{\label{tab:complexity} Computational complexity of different uncertainty propagation methods. (There seems to be an post-compilation inefficiency in the mean-field algorithm that we cannot explain.)}
+\end{table}
+
 
 \begin{ack}
 Use unnumbered first level headings for the acknowledgments. All acknowledgments
@@ -1203,23 +1289,8 @@ We initialized \(C\) to zero and \(d = \Phi^{-1}(\expect_\text{train} y)\).
 \subsection{Training}
 We trained this network using the AdamW optimizer \citep{loshchilov_decoupled_2019,deepmind_deepmind_2020} with learning rate \(10^{-5}\) for \(5000\) steps.
 
-\subsection{Inference}
-At inference time, we dropped all features except:
-\begin{enumerate}
-  \item Operating Profit Rate
-  \item Operating Profit Per Share (Yuan ¥)
-  \item Per Share Net profit before tax (Yuan ¥)
-  \item Realized Sales Gross Profit Growth Rate
-  \item Operating Profit Growth Rate
-  \item After-tax Net Profit Growth Rate
-  \item Regular Net Profit Growth Rate
-  \item Continuous Net Profit Growth Rate
-  \item Operating profit/Paid-in capital
-  \item Net profit before tax/Paid-in capital
-  \item Operating profit per person
-  \item Gross Profit to Sales
-\end{enumerate}
-The model is forced to impute the rest of the balance sheet information (assets, liabilities, debt structure etc.) based on a subset of cash flows.
+% \subsection{Inference}
+
 
 \clearpage
 \section{Numerical results for random neural networks}
