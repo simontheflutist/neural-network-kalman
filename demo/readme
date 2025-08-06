@@ -1,0 +1,1 @@
+isort . && black . && time JAX_PLATFORMS=cpu,cuda nice -n 20 ionice ipython3 test_case.py

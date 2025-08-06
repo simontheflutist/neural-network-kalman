@@ -22,6 +22,9 @@ class UnscentedTransformMethod(Enum):
     # The Scaled Unscented Transformation
     UT1_SCALAR = auto(UnscentedHyperparameters(alpha=1e-3, beta=2, kappa=2))
 
+    UT0_VECTOR = auto(UnscentedHyperparameters(alpha=1, beta=0, kappa=0))
+    UT1_VECTOR = auto(UnscentedHyperparameters(alpha=1e-3, beta=2, kappa=0))
+
 
 @equinox.filter_jit
 def unscented_transform(

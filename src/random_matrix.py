@@ -11,6 +11,16 @@ class RandomMatrixFactory(equinox.Module):
         pass
 
 
+class ConstantMatrix(RandomMatrixFactory):
+    value: float
+
+    def __init__(self, value=1):
+        self.value = value
+
+    def build(self, key, shape):
+        return jnp.full(shape, self.value)
+
+
 class ZeroMatrix(RandomMatrixFactory):
     def build(self, key, shape):
         return jnp.zeros(shape)
@@ -35,7 +45,7 @@ class RandomUniform(RandomMatrixFactory):
     min_val: float
     max_val: float
 
-    def __init__(self, min_val=0, max_val=2 * jnp.pi):
+    def __init__(self, min_val=-jnp.pi, max_val=jnp.pi):
         self.min_val = min_val
         self.max_val = max_val
 

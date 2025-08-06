@@ -36,9 +36,10 @@ class Normal(equinox.Module):
             engine=scipy.stats.qmc.Sobol(rng=seed, scramble=True, d=self.n),
         ).random(num_samples)
 
-    def samples(self, num_samples, key=42):
+    def samples(self, num_samples, key=jax.random.PRNGKey(42)):
+        # uses the svd method to support degenerate covariance matrices
         return jax.random.multivariate_normal(
-            key, mean=self.μ, cov=self.Σ, shape=num_samples
+            key, mean=self.μ, cov=self.Σ, shape=num_samples, method="svd"
         )
 
     def pdf(self, x):
@@ -74,23 +75,31 @@ class Normal(equinox.Module):
             jnp.delete(jnp.delete(self.Σ, index, 0), index, 1),
         )
 
+    def condition_on_projection(self, P: jnp.ndarray, y: jnp.ndarray):
+        """Return the conditional distribution given that P X = y."""
+        return Normal(
+            μ=self.μ
+            + self.Σ @ P.T @ jnp.linalg.inv(P @ self.Σ @ P.T) @ (y - P @ self.μ),
+            Σ=self.Σ - self.Σ @ P.T @ jnp.linalg.inv(P @ self.Σ @ P.T) @ P @ self.Σ,
+        )
+
     def condition(
         self, target: slice, given: slice, equals: typing.Union[jnp.ndarray, "Normal"]
     ):
         if isinstance(equals, Normal):
             μ, Σ = schur_complement_2(
-                A=self.Σ[target, target],
-                B=self.Σ[target, given],
-                C=self.Σ[given, given],
+                A=self.Σ[target, :][:, target],
+                B=self.Σ[target, :][:, given],
+                C=self.Σ[given, :][:, given],
                 D=equals.Σ,
                 x=self.μ[target],
                 y=equals.μ - self.μ[given],
             )
         else:
             μ, Σ = schur_complement(
-                A=self.Σ[target, target],
-                B=self.Σ[target, given],
-                C=self.Σ[given, given],
+                A=self.Σ[target, :][:, target],
+                B=self.Σ[target, :][:, given],
+                C=self.Σ[given, :][:, given],
                 x=self.μ[target],
                 y=equals - self.μ[given],
             )
@@ -122,6 +131,19 @@ class Normal(equinox.Module):
         return 0.5 * (
             trace + log_det + mean_diff.T @ jnp.linalg.solve(self.Σ, mean_diff) - self.n
         )
+
+    def __add__(self, other):
+        return Normal(self.μ + other.μ, self.Σ + other.Σ)
+
+    def __mul__(self, a):
+        assert jax.numpy.isscalar(a), "a must be a scalar"
+        return Normal(self.μ * a, self.Σ * (a**2))
+
+    def __rmul__(self, a):
+        return self * a
+
+    def __str__(self):
+        return f"Normal(μ={self.μ}, Σ={self.Σ})"
 
 
 @equinox.filter_jit

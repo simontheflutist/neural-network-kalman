@@ -325,18 +325,19 @@ It turns out that only three transcendental functions are needed to compute the 
 \end{definition}
 
 \begin{lemma}
-  Let \(g\) be the function defined by \(g(x; A, b, C, d) = \sigma(A
+\label{lem:moment-maps}
+  For some activation function \(\sigma\), let \(g\) be the function defined by \(g_\sigma(x; A, b, C, d) = \sigma(A
   x+ b) + C x + d\).
   Let \(X \sim \mathcal N(\mu, \Sigma)\).
   Then
   \begin{align*}
-    \del{\expect g(X; A, b, C, d)}_i &= M_\sigma(\mu_i; \nu_{ii}) +
+    \del{\expect g_\sigma(X; A, b, C, d)}_i &= M_\sigma(\mu_i; \nu_{ii}) +
     (C\mu)_i + d_i
   \end{align*}
   and
   \begin{align*}
     \begin{split}
-      \del{\Cov g(X; A, b, C, d)}_{i, j} &=
+      \del{\Cov g_\sigma(X; A, b, C, d)}_{i, j} &=
         K_\sigma\del{
           \mu_i, \mu_j; \nu_{ii}, \nu_{jj}, \nu_{ij}
         } \\
@@ -419,7 +420,7 @@ Even those these instances are contrived, they shed light on the relative streng
 \end{example}
 
 This intricate example suggests that for \(Y_\mathrm{ana}\) to fail, there needs to be a conspiracy between non-normality (here, \(Y^1\)) and strong nonlinearity (here, from \(Y^1\) to \(Y\)).
-It is easier to fool the rival approximations, as the following examples show.
+It is easier to thwart the rival approximations, as the following examples show.
 On all of these, the mean and variance of \(Y_\mathrm{ana}\) are exact.
 We have forgone tables of results which would show errors on the order of machine epsilon.
 
@@ -453,7 +454,7 @@ We have forgone tables of results which would show errors on the order of machin
 \end{example}
 
 
-\section{Numerical Results}
+\section{Applications}
 \subsection{Random networks}
 \label{sec:random-networks}
 We apply our method and its rivals to 24 different ensembles of random neural networks:
@@ -509,6 +510,148 @@ See Appendix~\ref{app:random-neural-networks} for a description of the ensembles
 %   \includegraphics[]{figures/interpolated-nominal-variance-density.pdf}
 %   \caption{\label{fig:interpolated-regime-pdf} Histogram of \(Y_0\) and probability density functions of its approximants in \S\ref{sec:interpolation-regime}.}
 % \end{figure}
+
+
+\subsection{Inference under uncertainty: regression}
+\label{sec:california-housing}
+We study the uncertainty quantification problem in which a neural network trained for regression on noiseless inputs is used to make predictions on a shifted distribution of noisy inputs.
+That is, a neural mapping \(f:\mathbb{R}^{ n} \to \mathbb{R}\) and a variance \(\sigma^2\) are chosen to maximize the log-likelihood of the generative model
+\begin{align}
+  y \mid x \sim \mathcal N(f(x), \sigma^2)
+\end{align}
+for a set of inputs \(\{x_i\}_{i=1}^N\) and outputs \(\{y_i\}_{i=1}^N\).
+At inference time, the input \(x\) is corrupted to \(\hat X = x + \epsilon\), where \(\epsilon \sim \mathcal N(0, \Sigma_\epsilon)\) is a perturbation with a known distribution.
+We make the prediction
+\begin{align}
+  \hat Y &= f(\hat X) + \mathcal N(0, \sigma^2)
+  \intertext{which we approximate by}
+  \hat Y &\approx \mathcal N(\expect(f(X) \mid \hat X), \sigma^2 + \Var(f(X) \mid \hat X)).
+\end{align}
+
+We apply this to the California housing dataset consisting of roughly 20,000 \((x,y)\) pairs, in which \(y\) is the log median house price of a block from the 1990 United States Census, and \(x\) is a vector of eight features of that block consisting of latitude, longitude, and other demographic information.
+At inference time, we corrupt the input \(x\) with a Gaussian noise.
+We report the average negative log probability density of the test \(y\) under the predictive distribution \(\hat Y\) in Table.~\ref{tab:california-housing}.
+
+The model specification, training procedure, and Monte Carlo method are detailed in Appendix.~\ref{app:california-housing}.
+
+\begin{table}
+  \begin{center}
+    \begin{tabular}{cr}
+      \toprule
+      Method & avg.~negative log pdf of test data \\
+      \midrule
+      {\bfseries analytic} & 1.421 \\
+      mean-field & 1.647 \\
+      linear & 1.851 \\      
+      unscented'95 & 1.458 \\
+      unscented'02 & 2.529 \\
+      certain (\(\Sigma_\epsilon = 0\)) & 4.456 \\
+      \bottomrule
+    \end{tabular}
+  \end{center}
+  \caption{\label{tab:california-housing} Performance of different uncertainty propagation methods on the California housing regression problem.}
+\end{table}
+
+\subsection{Inference under missing features: binary classification}
+\label{sec:classification}
+We study the uncertainty quantification problem in which a neural network trained for binary classification on noiseless inputs is used to make predictions on a shifted distribution of noisy inputs.
+A neural mapping \(f: \mathbb R ^{n} \to \mathbb R\) is trained to maximize the log-likelihood of the generative model
+\begin{align}
+\label{eq:classification-model}
+  y \mid x &\sim \operatorname{Bernoulli}(p)
+  \\
+  p &\coloneqq \Phi(f(x))
+\end{align}
+for a set of inputs \(\{x_i\}_{i=1}^N\) and outputs \(\{y_i\}_{i=1}^N\).
+
+At inference time, the input \(x\) is corrupted to \(z = Px\), where \(P\) is a wide measurement matrix.
+The situation in which \(P\) is rank deficient corresponds to missing features.
+In order to use the model~\eqref{eq:classification-model} for inference, we impute the missing features using linear regression:
+\begin{subequations}
+\label{eq:classification-imputation}
+\begin{align}
+  \hat X \mid z
+  &= \mathcal N(\hat \mu, \hat \Sigma),\\
+  \hat \mu
+  &= \mu + \Sigma P^\intercal \del{P \Sigma P^\intercal}^{-1} (z - \mu),\\
+  \hat \Sigma
+  &= \Sigma - \del{\Sigma P^\intercal} \del{P \Sigma P^\intercal}^{-1} \del{P \Sigma}.
+\end{align}
+\end{subequations}
+Here, \(\mu\) and \(\Sigma\) are the population mean and variance-covariance matrix of \(x\), estimated from the training data.
+
+Afterwards we make the uncertainty-aware prediction
+\begin{align}
+  \hat Y \mid \hat X &\sim \operatorname{Bernoulli}(\hat p)
+  \\
+  \hat p &\coloneqq \expect\sbr{\Phi(f(x)) \mid \hat X},
+  \intertext{which we approximate by a Gaussian Ansatz on \(f(x)\):}
+  \hat p_\mathrm{uq} &= \Phi\del{\frac{\expect \sbr{f(x) \mid \hat X}}{\sqrt{1 + \Var \sbr{f(x) \mid \hat X}}}}.
+  \intertext{We compare this prediction to the uncertainty-unaware prediction, which uses the point estimate of \(\hat X\):}
+  \hat p_\mathrm{certain} &= \Phi\del{f(\expect \hat X)},
+  \intertext{as well as the full (uncorrupted) feature vector \(x\):}
+  \hat p_\mathrm{full} &= \Phi\del{f(x)}.
+  % \label{eq:classification-prediction-full}
+\end{align}
+
+\begin{figure}
+  \begin{center}
+    \includegraphics[]{generated/classification/roc-test.pdf}
+  \end{center}
+  \caption{\label{fig:classification-roc-test} ROC curve of different predictions on test data. ``Full'' refers to the true feature vector \(x\), ``Certain'' refers to the point estimate of \(\hat X\), and ``UQ'' refers to the uncertainty-aware prediction.}
+\end{figure}
+
+
+We apply this to the Taiwanese bankruptcy dataset \citep{liang_financial_2016,unknown_taiwanese_2020} in which \(x\) is a vector of 95 financial features of a company and \(y\) is a binary label indicating whether the company is bankrupt.
+We simulate missing data by dropping all but 12 features in the test data and imputing them using linear regression following \eqref{eq:classification-imputation}.
+On test data, the average log probability of the correct label is -0.127 using \(\hat p_\mathrm{certain}\), -0.118 using \(\hat p_\mathrm{uq}\), and -0.106 using \(\hat p_\mathrm{full}\).
+This shows that the uncertainty-aware prediction has better-calibrated probabilities than the uncertainty-unaware prediction, even though they have similar classification performance (Fig.~\ref{fig:classification-roc-test}).
+
+We give the details of the model specification, and training procedure in Appendix.~\ref{app:classification}.
+
+
+\subsection{Stochastic neural networks}
+The earliest conceptions of an artificial neural networks were, like biological neural networks, stochastic.
+(Sigmoidal activation functions were seen as a deterministic approximation to a neuron's propensity to fire.)
+Even though the biological similarity is no longer motivating in light of modern statistical intuition, as a curiosity, we analyze the output distribution of a neural network where the activation function is:
+\begin{align}
+  \tilde \sigma(x, U) &= 2 \bm{1}_{U < \Phi(x)} - 1,
+\end{align}
+where at each artificial neuron, \(U \sim \operatorname{Uniform}(0,1)\) is an independent random variable.
+This way, \(\bm{1}_{U < \Phi(x)}\) has a Bernoulli distribution with parameter \(\Phi(x)\),
+which contributes an additional diagonal variance term to Lemma~\ref{lem:moment-maps}:
+\begin{align*}
+  \begin{split}
+    \del{\Cov g_{\tilde \sigma}(X; A, b, C, d)}_{i, j} &=
+      K_\sigma\del{
+        \mu_i, \mu_j; \nu_{ii}, \nu_{jj}, \nu_{ij}
+      } \\
+      &\quad + L_\sigma\del{
+        \mu_i; \nu_{ii}, \tau_{jj},\kappa_{ij}
+      }
+      + L_\sigma\del{
+        \mu_j; \nu_{jj}, \tau_{ii},\kappa_{ji}
+      } \\
+      &\quad + \tau_{ij}
+      \\
+      &\quad + \delta_{ij} V_{ii}
+  \end{split},
+  \intertext{where \(\sigma(x) = \expect \del{\tilde \sigma(x, U) \mid x} = 2 \Phi(x) - 1\) and}
+  V_{ii} &= \Var\del{\sigma(x, U) \mid x}\\
+  & = 4 \Phi(x) (1 - \Phi(x)).
+\end{align*}
+
+
+
+% (Braintenberg) deep belief nets
+
+% sigmoid activation 
+
+% Phi tilde
+
+% p(1-p)
+
+% https://github.com/microsoft/BitNet
 
 \section{Computational complexity}
 \subsection{Theoretical}
@@ -880,6 +1023,7 @@ From \eqref{eq:expect-sin} immediately follows:
   by \eqref{eq:expect-cos}.
 \end{proof}
 
+
 \section{Theoretical Guarantees}
 \label{app:theoretical-guarantees}
 The objective of this section is to provide a theoretical analysis of the dissimilarity between \(Y_0\) and \(Y\).
@@ -975,55 +1119,107 @@ Then
 \end{align*}
 \end{theorem}
 
+\clearpage
+\section{Supplement to \S\ref{sec:california-housing}}
+\label{app:california-housing}
+\subsection{Data}
+The California Housing dataset \citep{kelley_pace_sparse_1997} consists of 20460 census blocks from the 1990 United States Census.
+We split this dataset into roughly 70\% training, 10\% validation, and 20\% test.
+We pre-processed this dataset by log-transforming some the variables and standardizing them using the means and standard deviations of the training set.
+The regressors are:
+\begin{itemize}
+  \item latitude of the block
+  \item longitude of the block
+  \item median income of the block
+  \item (logarithm) average number of rooms per household
+  \item (logarithm) average number of bedrooms per household
+  \item (logarithm) population of the block
+  \item (logarithm) number of households in the block
+\end{itemize}
+The predictor is the log median house price of the block.
 
-% \section{Training details for \S\ref{sec:interpolation-regime}}
-% \label{app:interpolation-regime}
-
-% \subsection{Network Architecture}
-% The neural network is implemented using JAX and Equinox, with the following architecture:
-% \begin{itemize}
-%     \item Input layer: 1D input (scalar)
-%     \item First hidden layer: 200 neurons with sinusoidal activation ($\sigma(x) = \sin(x)$)
-%     \item Three residual hidden layers: 200 neurons each with sinusoidal activation
-%     \item Output layer: Linear layer with 1D output (scalar)
-% \end{itemize}
-
-% \subsection{Training Details}
-% The training process follows these specifications:
-% \begin{itemize}
-%     \item Training samples: 10 pairs $(x, y)$ where $x, y \sim \mathcal{N}(0, 1)$
-%     \item Loss function: Mean squared error (MSE) between predicted and target outputs
-%     \item Optimization: AdamW optimizer with learning rate $10^{-5}$
-%     \item Training duration: 10,000 iterations
-%     \item Batch size: Full batch (all 10 samples used in each update)
-%     \item Weight initialization:
-%     \begin{itemize}
-%         \item First layer: Zero matrix for weights, uniform random for biases
-%         \item Hidden layers: Random orthogonal projection for weights, uniform random for biases
-%         \item Output layer: Zero initialization for both weights and biases
-%     \end{itemize}
-% \end{itemize}
-
-% \subsection{Implementation Details}
-% The implementation uses JAX's just-in-time compilation and automatic differentiation capabilities:
-% \begin{itemize}
-%     \item Uses Equinox for neural network implementation and training utilities
-%     \item Employs JIT compilation for the training step to improve performance
-%     \item Implements batched computation using JAX's vectorization capabilities
-%     \item Training is performed on CPU (though the code supports GPU acceleration)
-% \end{itemize}
-
-% \subsection{Training Process}
-% The network is trained to minimize the mean squared error between predictions and targets:
-% \[
-% \frac{1}{N}\sum_{i=1}^N (f_\theta(x_i) - y_i)^2
-% \]
-% where $f_\theta$ represents the neural network with parameters $\theta$, and $(x_i, y_i)$ are the training samples. The training process uses the full dataset for each update.
-
-\section{Monte Carlo simulation and analysis}
-\label{app:monte-carlo}
+\subsection{Network}
+We used a single-hidden-layer neural network to parameterize a model consisting of a superposition of a linear term and a sinusoidal term:
+\begin{align}
+f(x) &= C \sin(Ax + b) + C'x + d,
+\intertext{implemented using two layers:}
+f(x) &= \begin{pmatrix}
+  C \\
+  C'
+\end{pmatrix}f^1(x) + d, \\
+f^1(x) &= \sin\del{
+  \begin{pmatrix}
+    A \\ 0
+  \end{pmatrix}x + 
+  \begin{pmatrix}
+    b \\ 0
+  \end{pmatrix}
+} + 
+\begin{pmatrix}
+  0 \\ 1
+\end{pmatrix}x + 
+\begin{pmatrix}
+  0 \\ 0
+\end{pmatrix},
+\end{align}
+The number of hidden neurons (the number of rows of \(A\)) is 7.
+This number was the result of hand-tuning to reduce the subjective appearance of overfitting in the validation set.
 
 
+\subsection{Training}
+We initialized \(A\) with i.i.d.~Gaussian entries having mean zero and variance equal to the reciprocal of the number of columns.
+We initialized \(b\) with i.i.d.~\(\operatorname{Uniform}(-\pi, \pi)\).
+We initialized \(C\), \(C'\), and \(d\) to zero.
+
+We trained this network using the Adam optimizer on Optax \citep{deepmind_deepmind_2020} with learning rate \(10^{-1}\) for the first \(2000\) steps and \(10^{-2}\) for \(6000\) steps.
+
+\subsection{Inference}
+At inference time, we corrupt the input with a Gaussian noise with zero variance in the latitude and longitude features, and 10X population covariance in the other six features.
+In order to average out the variability in our Monte Carlo simulation, we make 512 epochs through the test data.
+The total number of random noise samples is \(512 \times 4096 = 2097152\), which we realize as a single quasi-Monte Carlo sample (the Sobol sequence has better theoretical properties when the sample size is a power of two) \citep{virtanen_scipy_2020}.
+This way, we expect the experimental uncertainty due to Monte Carlo randomness to be negligible compared to other effects such as the randomness of the train/val/test split.
+
+\clearpage
+\section{Supplement to \S\ref{sec:classification}}
+\label{app:classification}
+\subsection{Data}
+The Taiwanese bankruptcy dataset \citep{unknown_taiwanese_2020,liang_financial_2016} consists of 6819 instances of Taiwanese companies from 1999 to 2009.
+There are 95 features consisting of balance sheet (assets and liabilities) and cash flow information.
+The target variable is a binary indicator of bankruptcy.
+We preprocessed this dataset by standardizing the features using the means and standard deviations of the training set.
+We split this dataset into roughly 70\% training, 10\% validation, and 20\% test.
+
+
+\subsection{Network}
+We used a single-hidden-layer neural network with a width of 200, depth of 3, and sine activation function:
+\begin{align}
+  f(x) &= C \sin(A x + b) + d
+\end{align}
+where \(A\) is a \(200 \times 95\) matrix, \(b\) is a \(200 \times 1\) vector, \(C\) is a \(1 \times 200\) vector, and \(d\) is a \(1 \times 1\) vector.
+We initialized \(A\) with i.i.d.~Gaussian entries having mean zero and variance equal to the reciprocal of the number of columns.
+We initialized \(b\) with i.i.d.~\(\operatorname{Uniform}(-\pi, \pi)\).
+We initialized \(C\) to zero and \(d = \Phi^{-1}(\expect_\text{train} y)\).
+
+\subsection{Training}
+We trained this network using the AdamW optimizer \citep{loshchilov_decoupled_2019,deepmind_deepmind_2020} with learning rate \(10^{-5}\) for \(5000\) steps.
+
+\subsection{Inference}
+At inference time, we dropped all features except:
+\begin{enumerate}
+  \item Operating Profit Rate
+  \item Operating Profit Per Share (Yuan ¥)
+  \item Per Share Net profit before tax (Yuan ¥)
+  \item Realized Sales Gross Profit Growth Rate
+  \item Operating Profit Growth Rate
+  \item After-tax Net Profit Growth Rate
+  \item Regular Net Profit Growth Rate
+  \item Continuous Net Profit Growth Rate
+  \item Operating profit/Paid-in capital
+  \item Net profit before tax/Paid-in capital
+  \item Operating profit per person
+  \item Gross Profit to Sales
+\end{enumerate}
+The model is forced to impute the rest of the balance sheet information (assets, liabilities, debt structure etc.) based on a subset of cash flows.
 
 \clearpage
 \section{Numerical results for random neural networks}
