@@ -277,9 +277,7 @@ Because this problem is intractable in general, our approach is to replace it wi
     \end{align*}
 \end{definition}
 
-In Appendix~\ref{app:theoretical-guarantees}, we give a theoretical bound on the dissimilarity between the laws of \(Y_0\) and \(Y\).
 
-In order to compute the 
 It turns out that only three transcendental functions are needed to compute the first two moments of the pushforward measure of a Gaussian distribution under a layer defined by Def.~\ref{def:layer-function}.
 \begin{definition}
   \label{def:moment-maps}
@@ -398,6 +396,29 @@ But it is more correct to say that there are (at least) two unscented transforma
   This version, with default values tuned to be significantly more localized in \(X\)-space than Unscented'95, is usually called ``the'' unscented transformation in current filtering scholarship \cite{jiang_new_2025} and tooling \cite{ljung_unscentedkalmanfilter_2025}.
 \end{itemize}
 
+\section{Theoretical Guarantees}
+In Appendix~\ref{app:theoretical-guarantees}, we give a theoretical bound on the dissimilarity between the laws of \(Y_0\) and \(Y\).
+
+\begin{definition}
+Let \(X\) and \(Y\) be random variables taking values  \(\mathbb{R}^n\).
+The Wasserstein distance \(d_\text{W} (\mu, \nu)\) is 
+\begin{align*}
+  d_\mathrm{W}(X, Y) &= \sup_{\left\|\nabla h\right\|_{\infty} \leq 1} \expect (h(X) - h(Y)).
+\end{align*}
+\end{definition}
+
+We prove that \(d_\mathrm{W}(Y_0, Y)\) can be decomposed as
+the final step of a recursion
+\begin{multline}
+  \text{error at layer \(k\)}
+  \leq \del{\text{Lipschitz constant of layer \(k\)}} \del{\text{error at layer \(k-1\)}}
+  \\
+  + \del{\text{non-normality of layer \(k\)}}
+\end{multline}
+where all of the terms can be bounded in terms of the input distribution and the network weights.
+Even though these bounds are currently too loose to be practical, they lend attribution to the sources of error in our approach; in particular, that non-normality arises as an interaction between variance and nonlinearity.
+
+
 \section{Explicit adversariality}
 One can imagine adversarial instances of neural mappings \(Y=f(X)\) that make all of the methods look arbitrarily bad.
 Even those these instances are contrived, they shed light on the relative strengths and weaknesses of the methods.
@@ -455,25 +476,20 @@ We have forgone tables of results which would show errors on the order of machin
 \end{example}
 
 
-\section{Applications}
+\section{Examples, applications, and extensions}
 \subsection{Random networks}
 \label{sec:random-networks}
-See Appendix~\ref{app:random-neural-networks} for a description of the ensembles, the Monte Carlo methodology, and the full results.
-In most cases, our method is closest to the pseudo-true distribution (in KL divergence).
-A particularly striking example, which we reproduce here in Table~\ref{table:random-neural-networks-small-trained-probit-residual} and Fig.~\ref{fig:random-neural-networks-small-trained-probit-residual}, is the large-variance case of a small network with trained weights and a probit-residual activation function, in which the output distribution is visibly non-normal, but our method is still closest to the pseudo-true distribution by a factor of about 400 in KL divergence.
 
-Many examples; such as the small-variance test case with wide architecture, trained weights, and sine activation; exhibit the underdispersion of the mean-field approximation predicted in Example~\ref{ex:mean-field}.
-It is remarkable that even in the small-variance regime when our method, linearization, and the unscented transformations are all justified by the delta method and asymptotically equivalent, our method is often still closest to the pseudo-true distribution.
-
-\begin{table}[H]\begin{center}\input{generated/tables/RandomNeuralNetworkTestCase(network=small_trained_probit_residual,variance=Variance.LARGE).tex}
+\begin{table}\begin{center}\input{generated/tables/RandomNeuralNetworkTestCase(network=small_trained_probit_residual,variance=Variance.LARGE).tex}
 \end{center}
 \caption{\label{table:random-neural-networks-small-trained-probit-residual}Summary statistics for Network(architecture=small, weights=trained, activation=probit residual), variance=large}
-\end{table}\begin{figure}[H]\begin{center}
+\end{table}
+\begin{figure}\begin{center}
 \includegraphics{generated/distributions/RandomNeuralNetworkTestCase(network=small_trained_probit_residual,variance=Variance.LARGE).pdf}
 \end{center}
 \caption{\label{fig:random-neural-networks-small-trained-probit-residual}Probability distributions for Network(architecture=small, weights=trained, activation=probit residual), variance=large}
 \end{figure}
-We apply our method and its rivals to 24 different ensembles of random neural networks:
+We apply our method and other benchmarks to 24 different ensembles of random neural networks:
 \begin{itemize}
   \item network architecture \( \in \{\text{small}, \text{wide}, \text{deep}\} \)
   \item weights \( \in \{\text{initialized}, \text{trained}\} \)
@@ -494,37 +510,12 @@ In each case we compare the distributions of:
   \item unscented'02: unscented transform of the whole network using \(\alpha=0.001, \beta=2, \kappa=2\)
 \end{itemize}
 
-% Much of the effectiveness of overparameterized (wide and deep) neural networks is now understood by reference to an ``interpolation regime'' in which a neural network is supervised to fit training data exactly while simultaneously minimizing a regularization norm \citep{muthukumar_harmless_2020,schaeffer_double_2023,belkin_reconciling_2019}.
-% In this section, we train a neural network \(f\) with 121,201 parameters to interpolate \(y = f(x)\) for twenty pairs \((x, y)\), where we have randomly drawn \((x, y) \sim \mathcal N(0_2, I_2)\).
-% Details on the training process are provided in App.~\ref{app:interpolation-regime}.
-% The training data and the resulting function \(f\) are shown in Fig.~\ref{fig:interpolation-regime-function}.
+See Appendix~\ref{app:random-neural-networks} for a description of the ensembles, the Monte Carlo methodology, and the full results.
+In most cases, our method is closest to the pseudo-true distribution (in KL divergence).
+A particularly striking example, which we reproduce here in Table~\ref{table:random-neural-networks-small-trained-probit-residual} and Fig.~\ref{fig:random-neural-networks-small-trained-probit-residual}, is the large-variance case of a small network with trained weights and a probit-residual activation function, in which the output distribution is visibly non-normal, but our method is still closest to the pseudo-true distribution by a factor of about 400 in KL divergence.
 
-% The input is \(X \sim \mathcal N(0, 1)\).
-% The distributions \(Y\), \(Y_0\), and \(Y_1\) follow \S\ref{sec:problem}.
-% Our approximation beats the other approximations by a mile on all counts: closest mean to \(Y_1\), closest variance to \(Y_1\), least Wasserstein distance to \(Y_0\), and least Kullback-Leibler divergence to \(Y_1\) (Table~\ref{tab:interpolated-nominal-variance}).
-% These figures are consistent with inspection of the probability distributions (Fig.~\ref{fig:interpolated-regime-pdf}).
-
-% Details on the Monte Carlo simulation method and the summary statistics are given in App.~\ref{app:monte-carlo}.
-
-% \begin{table}
-%   \begin{center}
-%     \input{tables/interpolated-nominal-variance}
-%   \end{center}
-%   \caption{\label{tab:interpolated-nominal-variance} Normal distributions arising from the problem in \S\ref{sec:interpolation-regime}.}
-% \end{table}
-
-% \begin{figure}
-%   \centering
-%   \includegraphics[]{figures/interpolated-function.pdf}
-%   \caption{Training data (dots) and learned function (solid line) in the interpolation regime.}
-%   \label{fig:interpolation-regime-function}
-% \end{figure}
-
-% \begin{figure}
-%   \centering
-%   \includegraphics[]{figures/interpolated-nominal-variance-density.pdf}
-%   \caption{\label{fig:interpolated-regime-pdf} Histogram of \(Y_0\) and probability density functions of its approximants in \S\ref{sec:interpolation-regime}.}
-% \end{figure}
+Many examples; such as the small-variance test case with wide architecture, trained weights, and sine activation; exhibit the underdispersion of the mean-field approximation predicted in Example~\ref{ex:mean-field}.
+It is remarkable that even in the small-variance regime when our method, linearization, and the unscented transformations are all justified by the delta method and asymptotically equivalent, our method is often still closest to the pseudo-true distribution.
 
 
 \subsection{Inference under uncertainty: regression}
@@ -713,16 +704,19 @@ which contributes an additional diagonal variance term to Lemma~\ref{lem:moment-
 \end{figure}
 
 Applying this formula to 1 million samples from a stochastic version of the ``deep'' neural network of \S\ref{sec:random-networks} with a constant zero input results in a normal distribution that differs from the pseudo-true distribution by a KL divergence of roughly \(10^{-5}\)
- and a distribution that very strongly appears normal (Fig.~\ref{fig:stochastic}).
+ and a distribution that very strongly appears Normal (Fig.~\ref{fig:stochastic}).
 
 \section{Computational complexity}
-It is occasionally claimed that propagating a full covariance matrix by moment matching is computationally unjustified, because a covariance matrix scales quadratically with the number of hidden neurons \citep[\S5]{akgul_deterministic_2025}.
-(In fact, propagating a full covariance matrix by linearization scales cubically in the number of hidden neurons.)
-However, the computational complexity of \(Ax + b\) for a single hidden layer is also quadratic in the number of hidden neurons.
-Thus, theoretically, moment matching incurs at most a constant time slowdown compared to point prediction.
-Practically, we can use JAX to count the number of floating point operations (FLOPs), memory I/Os, and transcendental functions in a just-in-time (JIT) compiled version of each algorithm.
-We report these numbers for the architecture=wide, activation=sinusoidal neural network of \S\ref{sec:random-networks} in Table~\ref{tab:complexity}.
-Even though all of these numbers look large, they are a rounding error on a modern CPU or GPU boasting TFLOP throughput.
+It is occasionally claimed that propagating a full covariance matrix by moment matching is computationally unjustified, because the cost of propagating a covariance matrix scales quadratically with the number of hidden neurons \citep[\S5]{akgul_deterministic_2025}.
+This is incorrect.
+In fact the cost of moment matching, as well as that of linearized covariance propagation, is cubic in the number of hidden neurons due to the need to evaluate ``sandwich'' covariances such as \(A \Sigma A^\intercal\).
+By contrast, the computational complexity of evaluating a neural network is quadratic in the number of hidden neurons.
+Thus, theoretically, moment matching is one polynomial order of  magnitude slower than point prediction, and on the same order as linearization.
+
+In practice, the analytic moment matching formula requires roughly 600x the number of floating-point operations (FLOPs) as the unscented transform, which requires roughly 2x the number of FLOPs as the linear method.
+We counted these operations and other computational costs (memory I/Os and transcendental function calls) using just-in-time compilation with JAX, and report them
+for the architecture=wide, activation=sinusoidal neural network of \S\ref{sec:random-networks} in Table~\ref{tab:complexity}.
+These are a source of intrigue, but in realistic applications, all of these differences are moot on a modern processor with teraFLOP throughput.
 
 \begin{table}
 \begin{center}
@@ -916,7 +910,7 @@ CDF activation function
     &= \frac{1}{2\pi \sqrt{1 - \rho^2}} e^{-\frac{1}{2(1 - \rho^2)}
     \del{h^2 + k^2 - 2 \rho h k}},
   \end{align*}
-  a helpful identity found in \citet{drezner_computation_1990}
+  a helpful identity found in \citet{drezner_computation_1990}.
 \end{remark}
 
 
@@ -1118,7 +1112,7 @@ We recall the layer-by-layer Normal approximation resulting in \(Y\) alongside t
   \begin{align}
     Y &= Y^\ell & Y_0 &= Y^\ell_0
     \\
-    Y^k &= g^k(Y^{k-1}), & Y_0^k &= g^k(Y_0^{k-1}), & k \in
+    Y^k &= \normal g^k(Y^{k-1}), & Y_0^k &= g^k(Y_0^{k-1}), & k \in
     \cbr{1 \ldots \ell},
     \label{eq:hidden-layer-comparison}
     \\
@@ -1129,13 +1123,7 @@ We recall the layer-by-layer Normal approximation resulting in \(Y\) alongside t
 \end{subequations}
 We will use the Wasserstein distance to measure the distance between \(Y\) and \(Y_0\).
 
-\begin{definition}
-Let \(X\) and \(Y\) be random variables taking values  \(\mathbb{R}^n\).
-The Wasserstein distance \(d_\text{W} (\mu, \nu)\) is 
-\begin{align*}
-  d_\mathrm{W}(X, Y) &= \sup_{\left\|\nabla h\right\|_{\infty} \leq 1} \expect (h(X) - h(Y)).
-\end{align*}
-\end{definition}
+
 
 The ultimate goal is to show that \(d_\text{W} (Y_0,Y)\) is small.
 We will build up this quantity by recursion through the layers of the neural network.
@@ -1163,13 +1151,7 @@ Our basic triangle inequality is
   \label{eq:discrepancy-recursion}
   % \tag{recursion to \eqref{eq:discrepancy}}
 \end{align}
-In words, at a hidden layer \(k\),
-\begin{multline}
-  \text{error at layer \(k\)}
-  = \del{\text{Lipschitz constant of layer \(k\)}} \del{\text{error at layer \(k-1\)}} 
-  \\
-  + \del{\text{normal approximation error at layer \(k\)}}  
-\end{multline}
+% In words, at a hidden layer \(k\),
 If \(X\) is Gaussian, then \(\Delta^0 = 0\).
 We need to fill two blanks to make this formula concrete.
 
@@ -1189,21 +1171,230 @@ First, the Lipschitz constant \(\left\|\nabla g^k\right\|_\infty\):
   + \left\|C\right\|
 \end{align}
 
+% \subsection{\color{red} Gaussian Poincar\'e inequality \(\Var f(X) \lesssim \expect \left\|\nabla f(X)\right\|^2\)}
+% Suppose that \(f: \mathbb{R}^n \to \mathbb R\) is a smooth function.
+% Let \(X \sim \mathcal N(0, I_n)\).
+% Then
+% \begin{align}
+%   \Var f(X) \lesssim \expect \left\|\nabla f(X)\right\|^2
+% \end{align}
+
+% \textbf{Proof}
+% Let \(X'\) be an independent copy of \(X\).
+% \begin{align}
+%   \Var f(X)
+%   &\lesssim \expect \left\|f(X) - f(X')\right\|^2
+%   \\
+%   % &\lesssim \expect \left\|\int_0^1 \nabla f(X + t(X' - X)) \left(X' - X\right) \dif t\right\|^2
+%   \intertext{Introduce}
+%   Z(\theta) &= \cos(\theta) X + \sin(\theta) X'
+%   \intertext{Then}
+%   \expect \left\|f(X) - f(X')\right\|^2
+%   &\lesssim \expect \left\|f(Z(0)) - f(Z(\pi/2))\right\|^2
+%   \\
+%   &= \expect \left\|\int_0^{\pi/2} \dpd{f(Z(\theta))}{\theta} \dif \theta\right\|^2
+%   \\
+%   &= \expect \left\|\int_0^{\pi/2} \nabla f(Z(\theta)) \dot Z(\theta) \dif \theta\right\|^2
+%   \\
+%   &\leq \del{
+%     \expect \int_0^{\pi/2} \left\|\nabla f(Z(\theta))\right\|^2 \dif \theta
+%   }
+%   \del{
+%     \expect \int_0^{\pi/2} \left\|\dot Z(\theta)\right\|^2 \dif \theta
+%   }
+%   \\
+%   &= \del{
+%     \int_0^{\pi/2} \expect  \left\|\nabla f(Z(\theta))\right\|^2 \dif \theta
+%   }
+%   \del{
+%      \int_0^{\pi/2} \expect \left\|\dot Z(\theta)\right\|^2 \dif \theta
+%   }
+%   \intertext{\(Z(\theta)\) and \(\dot Z(\theta)\) have the same distribution as \(X\)}
+% \end{align}
+
+
 \subsection{Non-normality}
 Second, we need to bound the distance between \(g^k(Y^{k-1})\) and \(Y^k\).
 The importance of the recursion \eqref{eq:discrepancy-recursion} is that at layer \(k\), we assess the goodness of fit between \(g^k(Y^{k-1})\), a nonlinear transformation of a Normal random vector, and \(Y^k\), its approximant.
-The input to the nonlinearity is Normal.
-Since \(Y^{k-1}\) is Normal, we can use techniques from the functional analysis of Gaussian spaces, such as this second-order Poincar\'e inequality:
-\begin{theorem}[Second-order Poincar\'e inequality {\cite[Theorem~7.1]{nourdin_second_2009}}]
-Suppose that \(Y = f(X)\) is a random vector taking values in \(\mathbb{R}^n\), where \(X\) is a standard Normal random vector, and that \(Y\) has mean \(\mu\) and covariance matrix \(\Sigma\).
-Then
-\begin{align*}
-  d_\mathrm{W}\del{Y, \mathcal N(\mu, \Sigma)}
-  \leq \frac{3}{\sqrt 2} \|\Sigma^{-1}\| \|\Sigma\|^{1/2}
-  \sbr{\sum_{i = 1}^n \del{\expect \left\|D^2 f_i\right\|^4}^{1/4}}
-  \sbr{\sum_{i = 1}^n \del{\expect \left\|D f_i\right\|^4}^{1/4}}
-\end{align*}
+As the input to \(\sigma\) is Normal,
+the non-normality of \(g^k(Y^{k-1})\) depends on the non-linearity of \(g^k\), as measured by its second derivatives:
+\begin{multline}
+  d_\mathrm{W}
+  \del{g^k(Y^{k-1}), Y^k}
+  \leq 
+  \frac{3}{\sqrt 2} \left\|\Sigma_{k}^{-1}\right\| \left\|\Sigma_{k}\right\|^{1/2}
+  \left\|A^k \Sigma_{k-1} \del{A^k}^\intercal\right\|^{3/2}
+  \\
+  \cdot
+  \del{
+    \sum_{i=1}^{\mathsf d^k} \expect \left\|\sigma''(Y^{k-1}_i)\right\|^4
+  }^{1/4}
+  \del{
+    \sum_{i=1}^{\mathsf d^k} \expect \left\|\sigma'(Y^{k-1}_i)\right\|^4
+  }^{1/4}
+\end{multline}
+where \(\mathsf d^k\) is the number of neurons in layer \(k\) and \(\Sigma^k = \Cov Y^k\).
+As a cruder approximation,
+\begin{align}
+  d_\mathrm{W}
+  \del{g^k(Y^{k-1}), Y^k}
+  \leq 
+  \frac{3}{\sqrt 2} \del{\mathsf d^k}^{1/2} \left\|\sigma''\right\|_\infty \left\|\sigma'\right\|_\infty \left\|\Sigma_{k}^{-1}\right\| \left\|\Sigma_{k}\right\|^{1/2}
+  \left\|A^k \Sigma_{k-1} \del{A^k}^\intercal\right\|^{3/2}
+\end{align}
+
+These inequalities are applications of Lem.~\ref{lem:second-order-poincare}, which follows from a result from the functional analysis of Gaussian spaces:
+\begin{theorem}[{\citet[Theorem~7.1]{nourdin_second_2009}}]
+\label{thm:second-order-poincare}
+  Fix $d \ge 2$, and let $C = \{C(i, j); i, j = 1, \dots, d\}$ be a $d \times d$ positive definite matrix. Suppose that $F = (F_1, \dots, F_d)$ is a $\mathbb{R}^d$-valued random vector such that $\expect F_i = 0$ and $F_i \in \mathbb{D}^{2,4}$ for every $i=1, \dots, d$. Assume moreover that $F$ has covariance matrix $C$. Then
+$$
+d_W(F, \mathcal{N}_d(0, C)) \le \frac{3}{\sqrt 2} \|C^{-1}\| \|C\|^{1/2} \left(\sum_{i=1}^d \expect \|D^2 F_i\|_{\mathrm {op}}^4\right)^{1/4} \left(\sum_{j=1}^d \expect \|DF_j\|_{\mathfrak h}^4\right)^{1/4},
+$$
+where $\mathcal{N}_d(0, C)$ indicates a $d$-dimensional centered Gaussian vector, with covariance matrix equal to $C$,
+and \(D\) is the Malliavin derivative with respect to the underlying isonormal process.
 \end{theorem}
+This theorem is stated in terms of the deep generality of the Malliavin calculus for nonlinear functionals \(F\) of infinite-dimensional Gaussian processes.
+We adapt it to an inequality for finite-dimensional Gaussian \(X\):
+% , which is adapted from \cite[Theorem~7.1]{nourdin_second_2009}.
+% \begin{theorem}[Second-order Poincar\'e inequality {\cite[Theorem~7.1]{nourdin_second_2009}}]
+% Suppose that \(Y = f(X)\) is a random vector taking values in \(\mathbb{R}^n\), where \(X\) is a standard Normal random vector, and that \(Y\) has mean \(\mu\) and covariance matrix \(\Sigma\).
+% Then
+% \begin{align*}
+%   d_\mathrm{W}\del{Y, \mathcal N(\mu, \Sigma)}
+%   \leq \frac{3}{\sqrt 2} \|\Sigma^{-1}\| \|\Sigma\|^{1/2}
+%   \sbr{\sum_{i = 1}^n \del{\expect \left\|D^2 f_i\right\|^4}^{1/4}}
+%   \sbr{\sum_{i = 1}^n \del{\expect \left\|D f_i\right\|^4}^{1/4}}
+% \end{align*}
+% \end{theorem}
+% By a linera
+\begin{lemma}[Second-order Poincar\'e inequality]
+\label{lem:second-order-poincare}
+Let \(X \sim \mathcal N(\mu_X, \Sigma_X)\) be a \(\mathbb{R}^n\)-valued random vector and \(Y = f(X)\) be a \(\mathbb{R}^d\)-valued random vector with mean \(\mu\) and covariance matrix \(\Sigma_Y\).
+Then
+\begin{multline*}
+  d_\mathrm{W}\del{Y, \mathcal N(\mu, \Sigma_Y)}
+  \leq \frac{3}{\sqrt 2} \|\Sigma_Y^{-1}\| \|\Sigma_Y\|^{1/2} \left\|\Sigma_X\right\|^{3/2}
+  \\
+  \cdot \sbr{\sum_{i = 1}^d \del{\expect \left\|\nabla^2 f_i(X)\right\|^4}^{1/4}}
+  \sbr{\sum_{i = 1}^d \del{\expect \left\|\nabla f_i(X)\right\|^4}^{1/4}},
+\end{multline*}
+where \(\nabla^2f_i(X)\) is the Hessian of \(f_i\) evaluated at \(X\), and \(\nabla f_i(X)\) is the gradient of \(f_i\) evaluated at \(X\).
+\end{lemma}
+While this lemma is technically a basic application of Thm.~\ref{thm:second-order-poincare}, some nontrivial prerequisites are required to get it right.\footnote{cf.~\citet{karvonen_wasserstein_2025} which does not correctly scale with the input covariance.}
+Before proving this lemma, we first provide an exposition of isonormal Gaussian processes and the spaces \( \mathbb{D}^{m, p}\).
+This material is derived from \citet{nualart_malliavin_2006,nourdin_multivariate_2010}.
+% , which resemble the Sobolev spaces \(W^{m,p}\), but 
+% on
+% an isonormal Gaussian process.
+% The next paragraph explains the meaning of these terms.
+
+Let \(\mathcal I\) be an abstract index set.
+A Gaussian process \(\{X(i)\}_{i \in \mathcal I}\) is a family of \(\mathbb{R}\)-valued random variables
+such that for every finite subset \(\mathcal J \subset \mathcal I\),
+the random variables \(\{X(i)\}_{i \in \mathcal J}\) are jointly Normal.
+For example: let \(Z\) be a multivariate Normal random vector taking values in \(\mathbb{R}^n\).
+  Let \(\mathcal I = \{1, \dots, n\}\).
+  Define \(X(i) = Z_i\) for \(i \in \mathcal I\).
+  Then \(\{X(i)\}_{i \in \mathcal I}\) is a Gaussian process.
+Another example:
+in problems of learning a function \(f:\mathbb{R}^n \to \mathbb{R}\) from data, 
+the function of interest is modeled as a realization of a Gaussian process \(\{f(x)\}_{x \in \mathbb{R}^n}\) with a covariance kernel \(k(x, x')\) \citep{stein_interpolation_1999,rasmussen_gaussian_2008}.
+
+The first example above had a finite index set. The second had a finite-dimensional index set.
+But the generality of Thm.~\ref{thm:second-order-poincare} is amenable to an infinite-dimensional index set such as that obtained by a suitable restriction of \(L^2\).
+For example, the modern theory of weak convergence is interested in identifying so-called Donsker classes of functions \(h : \mathbb{R}^n \to \mathbb{R}\) such that for a sequence of i.i.d.~\(\mathbb{R}^n\)-valued random variables \(\{X_i\}_{i = 1}^\infty\),
+\begin{align*}
+  G(h) = \lim_{n \to \infty} \frac{1}{\sqrt n} \sum_{i = 1}^n \del{h(X_i) - \expect h(X)}
+\end{align*}
+converges in distribution to a Gaussian process indexed by \(h\) \citep{van_der_vaart_weak_1996}.
+
+Prepared with the vocabulary of abstract Gaussian processes, we introduce isonormal Gaussian processes:
+%  for which the covariance structure is compatible with the Hilbert space structure of the index set.
+\begin{definition}[Isonormal Gaussian process]
+  Let $\mathfrak{h}$ be a separable Hilbert space. A stochastic process $W = \{W(h), h \in \mathfrak{h}\}$ is an isonormal Gaussian process if it satisfies the following two properties:
+  \begin{enumerate}
+    \item For every $h \in \mathfrak{h}$, $\expect W(h) = 0$.
+    \item For every $h_1, h_2 \in \mathfrak{h}$, $\expect W(h_1) W(h_2) = \left\langle h_1, h_2 \right\rangle_\mathfrak{h}$.
+  \end{enumerate}
+\end{definition}
+
+Let \(\{W(h)\}_{h \in \mathfrak{h}}\) be an isonormal Gaussian process.
+Let \(\mathcal S\) be the set of all random variables that depend ``nicely'' on a finite subset of \(W\), i.e.
+\begin{align*}
+  \mathcal S &= \cbr{
+    f(W(h_1), \ldots, W(h_n))
+    \mid f \in \mathcal C^\infty_\mathrm{c}(\mathbb{R}^n),
+    h_1, \ldots, h_n \in \mathfrak{h}
+  }
+\end{align*}
+where \(\mathcal C^\infty_\mathrm{c}(\mathbb{R}^n)\) is the space of smooth functions with compact support.
+The Malliavin derivative is defined by
+\begin{align*}
+  D f(W(h_1), \ldots, W(h_n)) &= \sum_{i=1}^n \partial_i f(W(h_1), \ldots, W(h_n)) h_i.
+\end{align*}
+The \(m\)th Malliavin derivative, which takes values in \(\mathfrak{h}^{\otimes m}\), the \(m\)th tensor power of \(\mathfrak{h}\), is defined iteratively.
+For \(m \geq 1\) and \(p \geq 1\), define the space \(\mathbb{D}^{m, p}\) to be the closure of \(\mathcal S\) under the norm\footnote{Compare to the Sobolev space \(W^{m,p}\).}
+\begin{align*}
+  \|F\|_{\mathbb{D}^{m, p}}^p &=  \expect \left|F\right|^p + \sum_{i=1}^m \expect \left\|D^i F\right\|_{\mathfrak{h}^{\otimes i}}^p.
+\end{align*}
+
+\begin{proof}[Proof of Lemma~\ref{lem:second-order-poincare}]
+  In order to apply Thm.~\ref{thm:second-order-poincare}, we need to represent \(Y = f(X)\) as a member of \(\mathbb{D}^{2, 4}\).
+  Without loss of generality, we can assume that \(\expect X = 0\).
+  Next, we represent \(X\) in terms of an isonormal Gaussian process.
+  Let \(\mathfrak h\) be the Hilbert space \(\mathbb{R}^n\) equipped with the standard dot product.
+  Let \(\xi\) be a standard Normal random vector taking values in \(\mathbb{R}^n\).
+  Define \(Z(h) = \left\langle h, \xi \right\rangle_\mathfrak{h}\) for \(h \in \mathfrak{h}\).
+  Then \(\{Z(h)\}_{h \in \mathfrak{h}}\) is an isonormal Gaussian process and \(\xi_i = Z(e_i)\) for \(i = 1, \ldots, n\), where \(e_i\) is the \(i\)th standard basis vector.
+  Next, we note that
+  \begin{align*}
+    X &\overset{\mathcal D}{=} \Sigma_{X}^{1/2} \xi
+    \\
+    &\overset{\mathcal D}{=} \Sigma_{X}^{1/2} \sum_{i = 1}^n \xi_i e_i.
+  \end{align*}
+  Therefore, by approximating \(f\) using smooth bounded functions, we can write
+  \begin{align*}
+    Y &= f(X)
+    \\
+    &= f\del{\Sigma_{X}^{1/2} \sum_{j = 1}^n \xi_j e_j}
+    \\
+    \intertext{The Malliavin derivative of  \(Y\) is given by}
+    D Y_k &= 
+    \sum_{i = 1}^n \dpd{}{\xi_i}f_k\del{\Sigma_{X}^{1/2} \sum_{j = 1}^n \xi_j e_j} e_i
+    \\
+    &= 
+    \sum_{i = 1}^n
+    \cbr{
+      D f_k\del{\Sigma_{X}^{1/2} \sum_{j = 1}^n \xi_j e_j}
+      \sbr{\dpd{}{\xi_i} \del{\Sigma_{X}^{1/2} \sum_{j = 1}^n \xi_j e_j}}
+    }  e_i
+    \\
+    &= 
+    \sum_{i = 1}^n
+    \cbr{
+      D f_k\del{\Sigma_{X}^{1/2} \sum_{j = 1}^n \xi_j e_j}
+      \sbr{\Sigma_{X}^{1/2} e_i}
+    }  e_i
+    \\
+    &= \Sigma_{X}^{1/2} \nabla f_k(X),
+    \intertext{and likewise the second Malliavin derivative is (identifying \(\mathfrak h \otimes \mathfrak h\) with \(\mathbb{R}^{n \times n}\))}
+    D^2 Y_{k} &= \Sigma_{X}^{1/2} \nabla^2 f_k(X) \Sigma_{X}^{1/2}.
+  \end{align*}
+  Thus the conclusion of Thm.~\ref{thm:second-order-poincare} becomes:
+  \begin{multline*}
+    d_W(Y, \mathcal{N}_d(\mu_Y, \Sigma_T)) \leq \frac{3}{\sqrt 2} 
+    \|\Sigma_Y^{-1}\| 
+    \|\Sigma_Y\|^{1/2} 
+    \\
+    \cdot \underbrace{
+      \left(\sum_{i=1}^d \expect \|D^2 Y_i\|_{\mathrm {op}}^4\right)^{1/4} 
+    }_{\mathclap{\leq \left\|\Sigma_X\right\|^{2/2} \left(\sum_{i=1}^d \expect \left\|\nabla^2 f_i(X)\right\|^4\right)^{1/4}}}
+    \\
+    \cdot \underbrace{
+      \left(\sum_{i=1}^d \expect \|DY_i\|_{\mathfrak h}^4\right)^{1/4}
+    }_{\mathclap{\leq \left\|\Sigma_X\right\|^{1/2} \left(\sum_{i=1}^d \expect \left\|\nabla f_i(X)\right\|^4\right)^{1/4}}}.
+  \end{multline*}
+\end{proof}
 
 \clearpage
 \section{Supplement to \S\ref{sec:california-housing}}
