@@ -39,7 +39,7 @@ from tqdm import tqdm, trange
 from unscented import UnscentedTransformMethod
 
 base_path = "../docs/manuscript/generated/"
-FAST = False
+FAST = True
 
 
 class Activation(Enum):
@@ -207,7 +207,7 @@ class RandomNeuralNetwork:
             done = loss < 1e-8
             return loss, equinox.apply_updates(model, updates), opt_state, done
 
-        with jax.default_device(jax.devices("cuda")[0]):
+        with jax.default_device(jax.devices("cpu")[0]):
             pbar = trange(1_000_000 if not FAST else 1000)
             for i in pbar:
                 loss, updated_network, opt_state, done = step(self.network, opt_state)
@@ -273,7 +273,8 @@ class RandomNeuralNetwork:
 class RandomNeuralNetworkTestCase:
     network: RandomNeuralNetwork
     variance: Variance
-    num_samples: int = 2**15 if FAST else 2**20
+    num_samples: int = 2**16
+    num_repetitions: int = 20
 
     def __post_init__(self):
         self.dist = {
@@ -286,23 +287,22 @@ class RandomNeuralNetworkTestCase:
         }[self.variance]
 
         logger.info("Generating quasi-Monte Carlo samples")
-        self.monte_carlo_inputs = self.dist.qmc(self.num_samples)
+        self.monte_carlo_inputs = [
+            self.dist.qmc(self.num_samples, seed=i) for i in range(self.num_repetitions)
+        ]
 
-        if FAST:
-            self.monte_carlo_outputs = jax.vmap(self.network.network)(
-                self.monte_carlo_inputs.reshape(-1, 1)
+        self.monte_carlo_outputs = [
+            jax.vmap(self.network.network)(
+                self.monte_carlo_inputs[i].reshape(-1, 1)
             ).reshape(-1)
-        else:
-            with jax.default_device(jax.devices("cuda")[0]):
-                self.monte_carlo_outputs = np.array(
-                    [
-                        jax.vmap(self.network.network)(x_batch.reshape(-1, 1))
-                        for x_batch in tqdm(self.monte_carlo_inputs.reshape(-1, 2**16))
-                    ]
-                ).flatten()
+            for i in range(self.num_repetitions)
+        ]
 
         logger.info("Computing normal distributions")
-        self.pseudo = normal.Normal.from_samples(self.monte_carlo_outputs)
+        self.pseudo = [
+            normal.Normal.from_samples(self.monte_carlo_outputs[i])
+            for i in range(self.num_repetitions)
+        ]
         with jax.default_device(jax.devices("cpu")[0]):
             self.approximations = {
                 Method.LINEAR: self.network.network(self.dist, method="linear"),
@@ -329,109 +329,162 @@ class RandomNeuralNetworkTestCase:
         return f"{self.network.pretty_name}, variance={self.variance.name.lower()}"
 
     def write_table(self):
-        DISTRIBUTION = "distribution"
-        MEAN = r"\(\dfrac{\mu - \expect Y_0}{\sqrt{\Var Y_0}}\)"
-        VARIANCE = r"\(\dfrac{\sigma^2}{\Var Y_0}\)"
-        WASSERSTEIN = r"\(\dfrac{d_{\mathrm W}(\cdot, Y_0)}{\sqrt{\Var Y_0}}\)"
-        KL = r"\(D_{\mathrm{KL}}(\cdot \| Y_1)\)"
-
-        sorted_data = np.sort(self.monte_carlo_outputs)
-
-        def wasserstein(dist):
-            theoretical_quantiles = scipy.stats.norm(
-                loc=dist.μ.item(), scale=dist.Σ.item() ** 0.5
-            ).ppf((np.arange(self.num_samples) + 0.5) / (self.num_samples))
-            return (
-                np.abs(theoretical_quantiles - sorted_data).mean()
-                * self.pseudo.Σ.item() ** -0.5
+        def bootstrap_mean_std(statistic):
+            repetitions = np.array(
+                [statistic(samples) for samples in self.monte_carlo_outputs]
             )
-
-        df = pd.DataFrame(
-            [
-                {
-                    DISTRIBUTION: r"pseudo-true (\(Y_1\))",
-                    MEAN: 0,
-                    VARIANCE: 1,
-                    WASSERSTEIN: wasserstein(self.pseudo),
-                    KL: 0,
-                },
-                *[
-                    {
-                        DISTRIBUTION: name,
-                        MEAN: (dist.μ.item() - self.pseudo.μ.item())
-                        / np.sqrt(self.pseudo.Σ.item()),
-                        VARIANCE: dist.Σ.item() / self.pseudo.Σ.item(),
-                        WASSERSTEIN: wasserstein(dist),
-                        KL: self.pseudo.kl_divergence(dist).item(),
-                    }
-                    for name, dist in [
-                        (
-                            r"\midrule {\bfseries analytic}",
-                            self.approximations[Method.ANALYTIC],
-                        ),
-                        (
-                            r"mean-field",
-                            self.approximations[Method.MEAN_FIELD],
-                        ),
-                        (r"linear", self.approximations[Method.LINEAR]),
-                        (
-                            r"unscented'95",
-                            self.approximations[Method.UNSCENTED0],
-                        ),
-                        (
-                            r"unscented'02",
-                            self.approximations[Method.UNSCENTED1],
-                        ),
-                    ]
-                ],
-            ]
-        )
-
-        filename = f"tables/{str(self)}.tex"
+            return repetitions.mean(), repetitions.std()
 
         def format_scientific(x):
             if x == 0:
-                return "0 by definition"
-            if x == 1:
-                return "1 by definition"
+                return "0"
             return (
                 r"""\num[print-zero-exponent = true,print-exponent-implicit-plus=true,print-implicit-plus=true]{"""
                 + f"{x:.3e}"
                 + "}"
             )
 
-        df.to_latex(
-            base_path + filename,
+        def format_std(x):
+            if x == 0:
+                return "0"
+            return (
+                r"""\num[print-zero-exponent = true,print-exponent-implicit-plus=true]{"""
+                + f"{x:.1e}"
+                + "}"
+            )
+
+        def format_scientific_uncertainty(mean, std):
+            return format_scientific(mean) + r" \ensuremath{\pm} " + format_std(std)
+
+        DISTRIBUTION = "distribution"
+        MEAN = r"\(\mu\)"
+        VARIANCE = r"\(\sigma^2\)"
+        WASSERSTEIN = r"\(d_{\mathrm W}(\cdot, Y_0)\)"
+        KL = r"\(D_{\mathrm{KL}}(\cdot \| Y_1)\)"
+
+        def wasserstein(samples, dist):
+            sorted_data = np.sort(samples)
+            theoretical_quantiles = scipy.stats.norm(
+                loc=dist.μ.item(), scale=dist.Σ.item() ** 0.5
+            ).ppf((np.arange(self.num_samples) + 0.5) / (self.num_samples))
+            return (
+                np.abs(theoretical_quantiles - sorted_data).mean()
+                * samples.std().item() ** -0.5
+            )
+
+        df = pd.DataFrame(
+            [
+                {
+                    DISTRIBUTION: r"pseudo-true (\(Y_1\))",
+                    MEAN: format_scientific_uncertainty(
+                        *bootstrap_mean_std(lambda samples: samples.mean())
+                    ),
+                    VARIANCE: format_scientific_uncertainty(
+                        *bootstrap_mean_std(lambda samples: samples.var())
+                    ),
+                    WASSERSTEIN: format_scientific_uncertainty(
+                        *bootstrap_mean_std(
+                            lambda samples: wasserstein(
+                                samples, normal.Normal.from_samples(samples)
+                            )
+                        )
+                    ),
+                    KL: 0,
+                },
+            ]
+        )
+
+        for name, dist in [
+            (
+                r"\midrule analytic",
+                self.approximations[Method.ANALYTIC],
+            ),
+            (
+                r"mean-field",
+                self.approximations[Method.MEAN_FIELD],
+            ),
+            (r"linear", self.approximations[Method.LINEAR]),
+            (
+                r"unscented'95",
+                self.approximations[Method.UNSCENTED0],
+            ),
+            (
+                r"unscented'02",
+                self.approximations[Method.UNSCENTED1],
+            ),
+        ]:
+            df = pd.concat(
+                [
+                    df,
+                    pd.DataFrame(
+                        [
+                            {
+                                DISTRIBUTION: name,
+                                MEAN: format_scientific(dist.μ.item()),
+                                VARIANCE: format_scientific(dist.Σ.item()),
+                                WASSERSTEIN: format_scientific_uncertainty(
+                                    *bootstrap_mean_std(
+                                        lambda samples: wasserstein(samples, dist)
+                                    )
+                                ),
+                                KL: format_scientific_uncertainty(
+                                    *bootstrap_mean_std(
+                                        lambda samples: normal.Normal.from_samples(
+                                            samples
+                                        )
+                                        .kl_divergence(dist)
+                                        .item()
+                                    )
+                                ),
+                            }
+                        ]
+                    ),
+                ],
+                ignore_index=True,
+            )
+
+        moment_filename = f"tables/moments/{str(self)}.tex"
+        divergence_filename = f"tables/divergences/{str(self)}.tex"
+
+        df[df.columns[:3]].to_latex(
+            base_path + moment_filename,
             index=False,
             escape=False,
-            float_format=format_scientific,
             column_format="cllll",
         )
-        return filename
+        df[[df.columns[0], *df.columns[3:]]].to_latex(
+            base_path + divergence_filename,
+            index=False,
+            escape=False,
+            column_format="cllll",
+        )
+        return moment_filename, divergence_filename
 
     def plot_distributions(self):
+        samples = np.array(self.monte_carlo_outputs).flatten()
+        pseudo = normal.Normal.from_samples(samples)
         y_mesh = np.linspace(
             min(
-                self.pseudo.μ - 3 * self.pseudo.Σ**0.5,
-                np.percentile(self.monte_carlo_outputs, 0.5),
+                pseudo.μ - 3 * pseudo.Σ**0.5,
+                np.percentile(samples, 0.5),
             ),
             max(
-                self.pseudo.μ + 3 * self.pseudo.Σ**0.5,
-                np.percentile(self.monte_carlo_outputs, 99.5),
+                pseudo.μ + 3 * pseudo.Σ**0.5,
+                np.percentile(samples, 99.5),
             ),
             3000,
         ).reshape(-1)
-        fig = Figure(dpi=300, figsize=(5, 5), constrained_layout=1)
+        fig = Figure(dpi=300, figsize=(5, 3), constrained_layout=1)
         ax1 = fig.add_subplot(311)
         ax1.hist(
-            self.monte_carlo_outputs,
+            samples,
             bins=50,
             density=True,
             alpha=0.5,
             label="true",
             color="C2",
         )
-        ax1.plot(y_mesh, jax.vmap(self.pseudo.pdf)(y_mesh), label="pseudo", color="C0")
+        ax1.plot(y_mesh, jax.vmap(pseudo.pdf)(y_mesh), label="pseudo", color="C0")
         ax1.plot(
             y_mesh,
             jax.vmap(self.approximations[Method.ANALYTIC].pdf)(y_mesh),
@@ -526,13 +579,23 @@ if __name__ == "__main__":
                 test_case = RandomNeuralNetworkTestCase(random_network, variance)
                 f.write(f"\\subsubsection*{{Variance: {variance.name}}}\n")
                 logger.info(f"Test case: {test_case}")
-                table_name = test_case.write_table()
+
+                moment_filename, divergence_filename = test_case.write_table()
                 distribution_name = test_case.plot_distributions()
                 f.write(r"\begin{table}[H]\begin{center}")
-                f.write(f"\\input{{generated/{table_name}}}\n")
+                f.write(f"\\input{{generated/{moment_filename}}}\n")
                 f.write(r"\end{center}" + "\n")
                 f.write(
-                    rf"\caption{{Summary statistics for {test_case.pretty_name}}}"
+                    rf"\caption{{Comparison of moments for {test_case.pretty_name}}}"
+                    + "\n"
+                )
+                f.write(r"\end{table}")
+
+                f.write(r"\begin{table}[H]\begin{center}")
+                f.write(f"\\input{{generated/{divergence_filename}}}\n")
+                f.write(r"\end{center}" + "\n")
+                f.write(
+                    rf"\caption{{Comparison of statistical distances for {test_case.pretty_name}}}"
                     + "\n"
                 )
                 f.write(r"\end{table}")

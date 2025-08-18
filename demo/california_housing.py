@@ -280,23 +280,53 @@ if __name__ == "__main__":
         interval_width = jax.vmap(evaluate_interval_width)(intervals)
         return nlpdf.mean(), coverage.mean(), interval_width.mean()
 
-    def evaluate_uq_method(x, y, num_batches, uq_method: UQMethod):
-        input_noise = input_noise_dist.qmc(num_samples=len(x) * num_batches)
-        means = [
-            evaluate_uq_method_batch(
-                x + w,
-                y,
-                uq_method,
+    def evaluate_uq_method(x, y, num_repetitions, num_batches, uq_method: UQMethod):
+        print(f"Evaluating {uq_method.name}")
+
+        # input_noise = input_noise_dist.samples(num_samples=len(x) * num_batches)
+        # means = [
+        #     evaluate_uq_method_batch(
+        #         x + w,
+        #         y,
+        #         uq_method,
+        #     )
+        #     for w in tqdm(np.split(input_noise, num_batches))
+        # ]
+        # return np.mean(means, axis=0), np.std(means, axis=0)
+        statistics = []
+        for i in trange(num_repetitions):
+            bootstrap_indices = jax.random.choice(
+                jax.random.PRNGKey(1231225389 + i), len(x), (len(x),)
             )
-            for w in tqdm(np.split(input_noise, num_batches))
-        ]
-        return np.mean(means, axis=0)
+            input_noise = input_noise_dist.samples(
+                num_samples=len(x) * num_batches, key=jax.random.PRNGKey(12312254 + i)
+            )
+            means = [
+                evaluate_uq_method_batch(
+                    x[bootstrap_indices] + w,
+                    y[bootstrap_indices],
+                    uq_method,
+                )
+                for w in np.split(input_noise, num_batches)
+            ]
+            statistics.append(np.mean(means, axis=0))
+        return np.mean(statistics, axis=0), np.std(statistics, axis=0)
 
     for meth, results in [
-        (meth, evaluate_uq_method(test_x, test_y, num_batches=512, uq_method=meth))
+        (
+            meth,
+            evaluate_uq_method(
+                test_x, test_y, num_repetitions=100, num_batches=100, uq_method=meth
+            ),
+        )
         for meth in list(UQMethod)
     ]:
-        nlpdf, coverage, interval_width = results
+        nlpdf, coverage, interval_width = results[0]
+        nlpdf_std, coverage_std, interval_width_std = results[1]
         print(
-            f"{meth.name:<20} {-nlpdf:.3f} & {100*coverage:.1f} & {interval_width:.2f}"
+            f"{meth.name:<20}"
+            f" & {-nlpdf:.3f} \\ensuremath{{\\pm}} \\num{{{nlpdf_std:.1e}}}"
+            f" & {100*coverage:.1f} \\ensuremath{{\\pm}} \\num{{{100*coverage_std:.1e}}}"
+            f" & {interval_width:.2f} \\ensuremath{{\\pm}} \\num{{{interval_width_std:.1e}}}"
+            f" \\\\"
         )

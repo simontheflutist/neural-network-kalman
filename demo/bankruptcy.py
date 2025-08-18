@@ -51,7 +51,7 @@ def load_data():
             != taiwanese_bankruptcy_prediction.data.features.iloc[0]
         ).any(),
     ]
-    test_features = np.where([("Interest Expense Ratio" in c) for c in X.columns])[0]
+    test_features = np.where([("Operating Gross Margin" in c) for c in X.columns])[0]
     logger.info(f"Test features: {X.columns[test_features]}")
 
     X = X.to_numpy(dtype="float64")
@@ -396,8 +396,10 @@ imputed_normals = jax.vmap(censor_and_impute)(test_x)
 for method in UQMethod:
     log_p0 = log_probabilities_imputed[method][:, 0]
     log_p1 = log_probabilities_imputed[method][:, 1]
-    loss = (test_y * log_p1 + (1 - test_y) * log_p0).mean()
-    print(f"{method.value} log-prob: {loss:.3f}")
+    loss = test_y * log_p1 + (1 - test_y) * log_p0
+    print(
+        f"{method.value} & {loss.mean():.3f} \\ensuremath{{\\pm}} \\num{{{loss.std() / np.sqrt(len(loss)):.1e}}}"
+    )
     # loss = (test_y * np.exp(log_p1) + (1 - test_y) * np.exp(log_p0)).mean()
     # print(f"{method.value} prob: {loss:.3f}")
 print(f"Full log-prob: {-get_loss(f, test_x, test_y):.3f}")
