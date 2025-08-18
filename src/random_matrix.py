@@ -70,4 +70,4 @@ class RandomOrthogonalProjection(RandomMatrixFactory):
         N = max(shape)
         Z = jax.random.normal(key, (N, N))
         U, _, V_H = jnp.linalg.svd(Z, full_matrices=False, compute_uv=True)
-        return self.scale * U[: shape[0], :] @ V_H[:, : shape[1]]
+        return U[: shape[0], :] @ V_H[:, : shape[1]] * self.scale
