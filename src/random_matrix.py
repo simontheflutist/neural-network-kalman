@@ -37,7 +37,7 @@ class RandomGaussian(RandomMatrixFactory):
         if type(shape) is int:
             scale = 1
         else:
-            scale = 1 / jnp.sqrt(shape[0])
+            scale = 1 / jnp.sqrt(shape[1])
         return jax.random.normal(key, shape=shape) * self.scale * scale
 
 
