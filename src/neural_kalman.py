@@ -2,7 +2,6 @@ import equinox
 from jax import numpy as jnp
 from network import Network
 from normal import Normal
-from unscented import UnscentedTransformMethod
 
 
 class NeuralKalmanFilter(equinox.Module):
@@ -19,8 +18,9 @@ class NeuralKalmanFilter(equinox.Module):
     INPUTS: slice
     OUTPUTS: slice
     JOINT: slice
+    uq_params: dict
 
-    def __init__(self, n_x, n_u, n_y, F, H, Q, R):
+    def __init__(self, n_x, n_u, n_y, F, H, Q, R, uq_params):
         assert F.out_size == n_x, "F.out_size != n_x"
         assert F.in_size == n_x + n_u, "F.in_size != n_x + n_u"
         assert H.out_size == n_y, "H.out_size != n_y"
@@ -33,6 +33,7 @@ class NeuralKalmanFilter(equinox.Module):
         self.H_aug = H.augment_with_identity()
         self.Q = Q
         self.R = R
+        self.uq_params = uq_params
 
         self.STATES = slice(None, n_x)
         self.INPUTS = slice(n_x, n_x + n_u)
@@ -44,27 +45,34 @@ class NeuralKalmanFilter(equinox.Module):
         self.NEXT_STATES = slice(n_x, None)
 
     @equinox.filter_jit
-    def predict(self, x: Normal, method="analytic", unscented_method=UnscentedTransformMethod.UT1_VECTOR, rectify=True):
+    def predict(
+        self,
+        x: Normal,
+    ):
         """Predicts the next state and output given the current state."""
         # predict state
-        x_pred = self.F(x, method=method, unscented_method=unscented_method, rectify=rectify).add_covariance(self.Q)
+        x_pred = self.F(x, **self.uq_params).add_covariance(self.Q)
         # predict joint distribution of state and output
-        x_and_y_pred = self.H_aug(
-            x_pred, method=method, unscented_method=unscented_method, rectify=rectify
-        ).add_covariance(self.R, at=self.OUTPUTS)
+        x_and_y_pred = self.H_aug(x_pred, **self.uq_params).add_covariance(
+            self.R, at=self.OUTPUTS
+        )
         return x_and_y_pred
 
     @equinox.filter_jit
-    def predict_with_input(self, x, u, method="analytic", unscented_method=UnscentedTransformMethod.UT1_VECTOR, rectify=True):
+    def predict_with_input(
+        self,
+        x,
+        u,
+    ):
         """Predicts the next state and output distribution given the current state and exogenous input."""
         # predict state
         x_and_u = Normal.independent(x, u)
-        x_pred = self.F(x_and_u, method=method, unscented_method=unscented_method, rectify=rectify).add_covariance(self.Q)
+        x_pred = self.F(x_and_u, **self.uq_params).add_covariance(self.Q)
         # predict joint distribution of state and output
         x_pred_and_u = Normal.independent(x_pred, u)
-        x_and_y_pred = self.H_aug(
-            x_pred_and_u, method=method, unscented_method=unscented_method, rectify=rectify
-        ).add_covariance(self.R, at=self.OUTPUTS)
+        x_and_y_pred = self.H_aug(x_pred_and_u, **self.uq_params).add_covariance(
+            self.R, at=self.OUTPUTS
+        )
         # discard the input
         return x_and_y_pred.delete(self.INPUTS)
 
@@ -74,23 +82,16 @@ class NeuralKalmanFilter(equinox.Module):
         x_and_y,
         y,
         recalibrate=False,
-        rectify=False,
-        unscented_method=UnscentedTransformMethod.UT1_VECTOR,
-        recalibrate_method="analytic",
         recalibrate_backout="trace",
     ):
         if recalibrate:
             post = self._recalibrated_correct(
                 x_and_y,
                 y,
-                method=recalibrate_method,
-                unscented_method=unscented_method,
                 backout=recalibrate_backout,
             )
         else:
             post = x_and_y.condition(self.STATES, given=self.OUTPUTS, equals=y)
-        if rectify:
-            post = post.rectify()
         return post
 
     @equinox.filter_jit
@@ -98,8 +99,6 @@ class NeuralKalmanFilter(equinox.Module):
         self,
         x_and_y: Normal,
         y,
-        method="analytic",
-        unscented_method=UnscentedTransformMethod.UT1_VECTOR,
         backout="trace",
         return_recalibration_difference=False,
     ):
@@ -118,7 +117,9 @@ class NeuralKalmanFilter(equinox.Module):
         #  but evaluates other terms at x_updated rather than x.
         #
         # This follows Jiang et al. 2024 "A new framework for nonlinear Kalman filters"
-        x_and_y_recal = self.H_aug(Normal(x_updated, P_x), method=method, unscented_method=unscented_method, rectify=True)
+        x_and_y_recal = self.H_aug(
+            Normal(x_updated, P_x), **self.uq_params
+        ).add_covariance(self.R, at=self.OUTPUTS)
         P_x_and_y_recal = x_and_y_recal.Σ.at[self.OUTPUTS, self.OUTPUTS].add(self.R)
         S_recal = P_x_and_y_recal[self.OUTPUTS, self.OUTPUTS]
         P_x_recal = (
@@ -152,16 +153,16 @@ class NeuralKalmanFilter(equinox.Module):
 
     @equinox.filter_jit
     def smooth(
-        self, x_current: Normal, x_next: Normal, method="analytic", unscented_method=UnscentedTransformMethod.UT1_VECTOR, rectify=True
+        self,
+        x_current: Normal,
+        x_next: Normal,
     ):
         # joint distribution of x_current and F(x_current)
-        x_current_and_next = self.F_aug(
-            x_current, method=method, unscented_method=unscented_method, rectify=rectify
-        ).add_covariance(self.Q, at=self.NEXT_STATES)
+        x_current_and_next = self.F_aug(x_current, **self.uq_params).add_covariance(
+            self.Q, at=self.NEXT_STATES
+        )
         # condition on F(x_current) = x_next
         smoothed = x_current_and_next.condition(
             target=self.STATES, given=self.NEXT_STATES, equals=x_next
         )
-        if rectify:
-            smoothed = smoothed.rectify()
         return smoothed
