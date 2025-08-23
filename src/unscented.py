@@ -15,15 +15,16 @@ class UnscentedHyperparameters(equinox.Module):
 class UnscentedTransformMethod(Enum):
     """
     Possible methods used to compute the weights and points for the unscented transform.
+    Values are instances of UnscentedHyperparameters.
     """
 
     # A New Method for the Nonlinear Transformation of Means and Covariances in Filters and Estimators
-    UT0_SCALAR = auto(UnscentedHyperparameters(alpha=1, beta=0, kappa=2))
+    UT0_SCALAR = UnscentedHyperparameters(alpha=1, beta=0, kappa=2)
     # The Scaled Unscented Transformation
-    UT1_SCALAR = auto(UnscentedHyperparameters(alpha=1e-3, beta=2, kappa=2))
+    UT1_SCALAR = UnscentedHyperparameters(alpha=1e-3, beta=2, kappa=2)
 
-    UT0_VECTOR = auto(UnscentedHyperparameters(alpha=1, beta=0, kappa=0))
-    UT1_VECTOR = auto(UnscentedHyperparameters(alpha=1e-3, beta=2, kappa=0))
+    UT0_VECTOR = UnscentedHyperparameters(alpha=1, beta=0, kappa=0)
+    UT1_VECTOR = UnscentedHyperparameters(alpha=1e-3, beta=2, kappa=0)
 
 
 @equinox.filter_jit
