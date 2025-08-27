@@ -5,13 +5,16 @@ import equinox
 import jax.numpy as jnp
 
 
-@dataclass
+@dataclass(frozen=True)
 class LorenzArgs:
     """Dataclass to hold Lorenz arguments."""
 
     σ: float = 1e-3
     T: float = 1.0
     dt: float = 1e-2
+
+    def __repr__(self):
+        return f"LorenzArgs(σ={self.σ}, T={self.T}, dt={self.dt})"
 
 
 class LorenzSDE(equinox.Module):
@@ -75,7 +78,7 @@ class LorenzSDE(equinox.Module):
             dt0=self.dt,
             y0=x,
             max_steps=10000,
-            **self.solver_args
+            **self.solver_args,
         )
         return sol if return_sol else sol.ys
 
@@ -94,7 +97,7 @@ class LorenzSDE(equinox.Module):
             y0=x,
             max_steps=10000,
             saveat=diffrax.SaveAt(ts=jnp.linspace(0, self.T, num_save, endpoint=True)),
-            **self.solver_args
+            **self.solver_args,
         )
 
         return sol.ts, sol.ys
