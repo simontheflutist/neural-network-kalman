@@ -1,5 +1,9 @@
+from enum import Enum
+import enum
+import itertools
 import os
 import sys
+from typing import Tuple
 
 lib_path = os.path.join(os.path.curdir, "../src")
 sys.path.insert(0, lib_path)
@@ -25,6 +29,8 @@ import numpy as np
 import random_matrix
 import unscented
 from matplotlib.figure import Figure
+from network import *
+from normal import *
 from tqdm import tqdm, trange
 
 from lorenz.lorenz import LorenzArgs, LorenzSDE
@@ -42,7 +48,7 @@ configuration = {
         "hidden_width": 30,
         "hidden_depth": 3,
         "batch_size": 40_000,
-        "num_epochs": 20000,
+        "num_epochs": 20_000,
         "N": 40_000,
         "R": jnp.eye(1) * 1e-2,
         "opt": optax.adamw(learning_rate=1e-3, nesterov=False),
@@ -51,19 +57,23 @@ configuration = {
         "hidden_width": 64,
         "hidden_depth": 4,
         "batch_size": 20_000,
-        "num_epochs": 20000,
+        "num_epochs": 20_000,
         "N": 40_000,
         "R": jnp.eye(1) * 1e-2,
         "opt": optax.adamw(learning_rate=1e-4, nesterov=False),
     },
+    # highest T
     LorenzArgs(σ=1e-3, T=1.0, dt=1e-2): {
         "hidden_width": 64,
         "hidden_depth": 5,
-        "batch_size": 10000,
-        "num_epochs": 20000,
+        "batch_size": 10_000,
+        "num_epochs": 20_000,
         "N": 200_000,
         "R": jnp.eye(1) * 1e-2,
-        "opt": optax.adamw(learning_rate=1e-4, nesterov=True),
+        "opt": optax.adamw(
+            learning_rate=optax.piecewise_constant_schedule(1e-4, {200_000: 1e-5}),
+            nesterov=False,
+        ),
     },
 }
 
@@ -93,7 +103,7 @@ def get_cache_path(cache_dir: Path, request: LorenzDataRequest) -> Path:
     return cache_dir / f"{hash(request)}.eqx"
 
 
-def make_data(request: LorenzDataRequest):
+def make_data(request: LorenzDataRequest, cache_data=True):
     """Generate or load cached data for the Lorenz system.
 
     Args:
@@ -123,7 +133,7 @@ def make_data(request: LorenzDataRequest):
     cache_path = get_cache_path(cache_dir=Path(".cache/lorenz_data"), request=request)
 
     # Try to load from cache
-    if cache_path.exists():
+    if cache_data and cache_path.exists():
         logger.info(f"Loading data from cache: {cache_path}")
         return equinox.tree_deserialise_leaves(
             cache_path, (X_train, Y_train, X_val, Y_val)
@@ -312,15 +322,16 @@ def train_network(
     return network, Q
 
 
-def get_model(lorenz_args):
+def get_model(lorenz_args, cache_model=True, cache_data=True):
     logger.info(f"Generating data for Lorenz system with args {lorenz_args}")
     X_train, Y_train, X_val, Y_val = make_data(
         LorenzDataRequest(
             lorenz_args, jax.random.PRNGKey(42), configuration[lorenz_args]["N"]
-        )
+        ),
+        cache_data=cache_data,
     )
     model_path = get_cache_path(Path(".cache/lorenz_model"), lorenz_args)
-    if model_path.exists():
+    if cache_model and model_path.exists():
         logger.info(f"Loading model from cache: {model_path}")
         skeleton = initialize_network(
             X_train,
@@ -363,7 +374,7 @@ def make_test_data(lorenz, N, trial_keys, x_0=np.array([-8.0, 4.0, 27.0])):
     Returns:
         A jax.Array of shape (num_trials, N + 1, 3) containing the test data
     """
-
+    logger.info(f"Generating test data for Lorenz system with args {lorenz}")
     num_trials = len(trial_keys)
     noise_keys = jax.vmap(jax.random.split, in_axes=(0, None), out_axes=1)(
         trial_keys, N
@@ -374,6 +385,33 @@ def make_test_data(lorenz, N, trial_keys, x_0=np.array([-8.0, 4.0, 27.0])):
     for i, keys in enumerate(tqdm(noise_keys)):
         x[i + 1, :, :] = _F(x[i, :, :], keys).squeeze()
     return jnp.transpose(x, (1, 0, 2))
+
+
+class InferenceKind(Enum):
+    PRED = r"Prediction $(t|t-1)$"
+    POST = r"Filtering $(t|t)$"
+    SMOOTH = r"Smoothing $(t|T)$"
+    CONST = r"Constant $(t|\infty)$"
+
+
+class PerformanceKind(Enum):
+    RMSE = r"RMSE"
+    COVERAGE95 = r"Coverage at 95\%"
+    COVERAGE99 = r"Coverage at 99\%"
+    LPDF = r"Log pdf"
+
+
+class Method(Enum):
+    ANALYTIC = enum.auto()
+    MEAN_FIELD = enum.auto()
+    LINEAR = enum.auto()
+    UNSCENTED0 = enum.auto()
+    UNSCENTED1 = enum.auto()
+
+
+class Recalibrate(Enum):
+    NO = enum.auto()
+    YES = enum.auto()
 
 
 class TestCase(equinox.Module):
@@ -400,16 +438,19 @@ class TestCase(equinox.Module):
     kalman: neural_kalman.NeuralKalmanFilter
     kalman_diagnostics: kalman_diagnostics.KalmanDiagnostics
 
-    x_pred: list
-    x_post: list
-    x_smooth: list
-    x_const: list
+    x_pred: Tuple[Normal]
+    x_post: Tuple[Normal]
+    x_smooth: Tuple[Normal]
+    x_const: Tuple[Normal]
 
-    def __init__(self, lorenz_args, test_x, R, uq_params):
+    def __init__(
+        self, lorenz_args, test_x, R, uq_params, recalibrate=False, progress_bar=True
+    ):
         self.lorenz_args = lorenz_args
         self.test_x = test_x
         self.R = R
         self.uq_params = uq_params
+        self.recalibrate = recalibrate
 
         self.lorenz = LorenzSDE(lorenz_args)
         self.model, self.Q = get_model(lorenz_args)
@@ -426,11 +467,12 @@ class TestCase(equinox.Module):
         self.kalman_diagnostics = kalman_diagnostics.KalmanDiagnostics(
             kalman_filter=self.kalman,
             x=self.test_x,
-            diagnostic_times=slice(10, -10),
+            diagnostic_times=slice(100, -100),
         )
 
         sim_horizon = len(self.test_x)
         # generate output
+        logger.info("Generating output")
         y = jax.vmap(self.H)(self.test_x) + jax.random.multivariate_normal(
             mean=jnp.zeros(1),
             cov=self.R,
@@ -442,9 +484,9 @@ class TestCase(equinox.Module):
         x_0 = Normal.certain(self.test_x[0])
         x_pred = [x_0]
         x_post = [x_0]
-        for i in trange(1, sim_horizon):
-            x_and_y_pred = self.kalman.predict(x_post[i - 1].rectify())
-            x_pred.append(x_and_y_pred[self.kalman.STATES])
+        for i in (trange if progress_bar else range)(1, sim_horizon):
+            x_and_y_pred = self.kalman.predict(x_post[i - 1].rectify()).rectify()
+            x_pred.append(x_and_y_pred[self.kalman.STATES].rectify())
             x_post.append(
                 self.kalman.correct(
                     x_and_y_pred, y[i], recalibrate=self.recalibrate
@@ -453,13 +495,15 @@ class TestCase(equinox.Module):
 
         logger.info("Running RTS smoother")
         x_smooth = list(x_post)
-        for i in trange(sim_horizon - 2, -1, -1):
+        for i in (trange if progress_bar else range)(sim_horizon - 2, -1, -1):
             x_smooth[i] = self.kalman.smooth(x_smooth[i], x_smooth[i + 1]).rectify()
 
-        self.x_pred = x_pred
-        self.x_post = x_post
-        self.x_smooth = x_smooth
-        self.x_const = [Normal.from_samples(self.test_x)] * sim_horizon
+        self.x_pred = tuple(z for z in x_pred)
+        self.x_post = tuple(z for z in x_post)
+        self.x_smooth = tuple(z for z in x_smooth)
+        self.x_const = (Normal.from_samples(self.test_x),) * sim_horizon
+        if progress_bar:
+            logger.info("Done running Kalman filter and smoother")
 
     def plot_trajectory(self, fig: Figure):
         time_slice = slice(len(self.x_pred) // 2 - 50, len(self.x_pred) // 2 + 50)
@@ -535,40 +579,165 @@ class TestCase(equinox.Module):
         ax.legend()
         return fig
 
+    def get_inference(self, inference_kind: InferenceKind):
+        if inference_kind == InferenceKind.PRED:
+            return self.x_pred
+        elif inference_kind == InferenceKind.POST:
+            return self.x_post
+        elif inference_kind == InferenceKind.SMOOTH:
+            return self.x_smooth
+        elif inference_kind == InferenceKind.CONST:
+            return self.x_const
+        else:
+            raise ValueError(f"Unknown inference kind: {inference_kind}")
+
+    def coverage(self, percentage_point=0.99, inference_kind=InferenceKind.PRED):
+        return self.kalman_diagnostics.single_coverage(
+            percentage_point, self.get_inference(inference_kind)
+        )
+
+    def lpdf(self, inference_kind=InferenceKind.PRED):
+        return self.kalman_diagnostics.lpdf(self.get_inference(inference_kind))
+
+    def rmse(self, inference_kind=InferenceKind.PRED):
+        return self.kalman_diagnostics.point_rmse(self.get_inference(inference_kind))
+
+    def get_performance(
+        self, performance_kind: PerformanceKind, inference_kind: InferenceKind
+    ):
+        if performance_kind == PerformanceKind.RMSE:
+            return self.rmse(inference_kind)
+        elif performance_kind == PerformanceKind.COVERAGE95:
+            return self.coverage(0.95, inference_kind)
+        elif performance_kind == PerformanceKind.COVERAGE99:
+            return self.coverage(0.99, inference_kind)
+        elif performance_kind == PerformanceKind.LPDF:
+            return self.lpdf(inference_kind)
+        else:
+            raise ValueError(f"Unknown performance kind: {performance_kind}")
+
+
+def mean_and_se(arr):
+    """
+    Calculate the mean and standard error of an array of data.
+
+    Parameters
+    ----------
+    arr : array-like
+        The array of data.
+
+    Returns
+    -------
+    mean : array-like
+        The mean of the data.
+    se : array-like
+        The standard error of the data.
+    """
+    arr = np.array(list(arr))
+    return np.mean(arr, axis=0), np.std(arr, axis=0) / np.sqrt(len(arr))
+
+
+def get_kalman_filter_types():
+    kalman_filter_types = list(itertools.product(Method, Recalibrate))
+    with tqdm(total=len(kalman_filter_types)) as pbar:
+        for method, recalibrate in kalman_filter_types:
+            pbar.set_description(f"{method}, {recalibrate}")
+            yield method, recalibrate
+            pbar.update(1)
+
 
 if __name__ == "__main__":
-    lorenz_args = LorenzArgs(σ=0.5, T=0.5, dt=1e-2)
+    lorenz_args = LorenzArgs(σ=1e-3, T=1.0, dt=1e-2)
+    model, Q = get_model(lorenz_args, cache_model=True, cache_data=True)
     lorenz = LorenzSDE(lorenz_args)
-    test_data = make_test_data(lorenz, 200, jax.random.split(jax.random.PRNGKey(10), 1))
-    test_case = TestCase(
-        lorenz_args,
-        test_data[0],
-        configuration[lorenz_args]["R"],
-        dict(
-            method="linear",
-            unscented_method=unscented.UnscentedTransformMethod.UT1_VECTOR,
-            rectify=True,
-        ),
-    )
-    # data_request = LorenzDataRequest(
-    #     lorenz_args=lorenz_args, key=jax.random.PRNGKey(23), N=200_000
-    # )
-    # X_train, Y_train, X_val, Y_val = make_data(data_request)
 
-    # network, Q = train_network(
-    #     initialize_network(
-    #         X_train,
-    #         hidden_width=configuration[lorenz_args]["hidden_width"],
-    #         hidden_depth=configuration[lorenz_args]["hidden_depth"],
-    #     ),
-    #     X_train,
-    #     Y_train,
-    #     X_val,
-    #     Y_val,
-    #     batch_size=configuration[lorenz_args]["batch_size"],
-    #     num_epochs=configuration[lorenz_args]["num_epochs"],
-    # )
+    results = {
+        performance_kind: {inference_kind: dict() for inference_kind in InferenceKind}
+        for performance_kind in PerformanceKind
+    }
+    test_datasets = make_test_data(
+        lorenz, 400, jax.random.split(jax.random.PRNGKey(10), 3)
+    )
+
+    for method, recalibrate in get_kalman_filter_types():
+        test_cases = [
+            TestCase(
+                lorenz_args,
+                test_data,
+                configuration[lorenz_args]["R"],
+                {
+                    Method.ANALYTIC: dict(
+                        method="analytic",
+                        rectify=True,
+                    ),
+                    Method.LINEAR: dict(
+                        method="linear",
+                        rectify=True,
+                    ),
+                    Method.UNSCENTED0: dict(
+                        method="unscented",
+                        unscented_method=unscented.UnscentedTransformMethod.UT0_VECTOR,
+                        rectify=True,
+                    ),
+                    Method.UNSCENTED1: dict(
+                        method="unscented",
+                        unscented_method=unscented.UnscentedTransformMethod.UT1_VECTOR,
+                        rectify=True,
+                    ),
+                    Method.MEAN_FIELD: dict(
+                        method="analytic",
+                        mean_field=True,
+                        rectify=True,
+                    ),
+                }[method],
+                progress_bar=False,
+                recalibrate=True if recalibrate == Recalibrate.YES else False,
+            )
+            for test_data in test_datasets
+        ]
+
+        file_name = f"lorenz-sde-sysid-constant-covariance-{method}-{recalibrate}"
+        test_cases[0].plot_trajectory(
+            Figure(figsize=(8, 6), dpi=600, constrained_layout=True)
+        ).savefig(
+            "../docs/kalman-manuscript/generated/" + file_name + "-trajectory.pdf"
+        )
+        test_cases[0].plot_coverage(
+            Figure(figsize=(6, 6), dpi=600, constrained_layout=True)
+        ).savefig("../docs/kalman-manuscript/generated/" + file_name + "-coverage.pdf")
+
+        for performance_kind in PerformanceKind:
+            for inference_kind in InferenceKind:
+                logger.info(
+                    f"Computing {performance_kind} for {inference_kind} with {method} and {recalibrate}"
+                )
+                results[performance_kind][inference_kind][(method, recalibrate)] = (
+                    mean_and_se(
+                        test_case.get_performance(performance_kind, inference_kind)
+                        for test_case in test_cases
+                    )
+                )
 
     import IPython
 
     IPython.embed(colors="neutral")
+
+    # lorenz_args = LorenzArgs(σ=0.5, T=0.5, dt=1e-2)
+    # lorenz = LorenzSDE(lorenz_args)
+    # test_datasets = make_test_data(
+    #     lorenz, 2000, jax.random.split(jax.random.PRNGKey(10), 10)
+    # )
+    # test_cases = [
+    #     TestCase(
+    #         lorenz_args,
+    #         test_data,
+    #         configuration[lorenz_args]["R"],
+    #         dict(
+    #             method="linear",
+    #             unscented_method=unscented.UnscentedTransformMethod.UT1_VECTOR,
+    #             rectify=True,
+    #         ),
+    #     )
+    #     for test_data in test_datasets
+    # ]
+    # print(mean_and_se([test_case.rmse() for test_case in test_cases]))
