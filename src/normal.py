@@ -25,6 +25,18 @@ class Normal(equinox.Module):
         self.n = μ.shape[0]
         assert self.Σ.shape == (self.n, self.n), self.Σ
 
+    def check_finite(self):
+        if not jnp.all(jnp.isfinite(self.μ)):
+            raise ValueError(f"μ contains NaNs: {self.μ}")
+        if not jnp.all(jnp.isfinite(self.Σ)):
+            raise ValueError(f"Σ contains NaNs: {self.Σ}")
+        return self
+
+    def check_psd(self):
+        if not jnp.all(jnp.linalg.eigvalsh(self.Σ) >= 0):
+            raise ValueError(f"Σ is not PSD: {self.Σ}")
+        return self
+
     def mean_field(self):
         return Normal(μ=self.μ, Σ=jnp.diag(jnp.diag(self.Σ)))
 
@@ -107,7 +119,7 @@ class Normal(equinox.Module):
 
     def χ2(self, x):
         diff = x - self.μ
-        return diff.T @ jnp.linalg.solve(self.Σ, diff)
+        return diff.T @ jnp.linalg.lstsq(self.Σ, diff)[0]
 
     def rectify(self):
         return Normal(self.μ, rectify_eigenvalues(self.Σ))
@@ -178,4 +190,4 @@ def schur_complement_2(A, B, C, D, x, y):
 
 def rectify_eigenvalues(P):
     Λ, V = jnp.linalg.eigh(P, symmetrize_input=1)
-    return V @ jnp.diag(jnp.maximum(Λ, 0)) @ V.T
+    return V @ jnp.diag(jnp.maximum(Λ, 1e-8)) @ V.T

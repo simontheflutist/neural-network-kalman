@@ -31,6 +31,17 @@ class KalmanDiagnostics(equinox.Module):
         )
         return np.linalg.det(outer_product_mean) ** (1 / self.kalman_filter.n_x)
 
+    def lpdf(self, state_trajectory):
+        return np.mean(
+            [
+                z.lpdf(x)
+                for z, x in zip(
+                    state_trajectory[self.diagnostic_times],
+                    self.x[self.diagnostic_times],
+                )
+            ]
+        )
+
     def calculate_coverage(self, predictions: typing.List[normal.Normal]):
         x_pred_χ2 = [
             z.χ2(x)
@@ -49,6 +60,18 @@ class KalmanDiagnostics(equinox.Module):
             x_pred_χ2_theoretical_percentage_points,
             x_pred_χ2_empirical_percentage_points,
         )
+
+    def single_coverage(
+        self, percentage_point: float, predictions: typing.List[normal.Normal]
+    ):
+        threshold = scipy.stats.chi2(self.kalman_filter.n_x).ppf(percentage_point)
+        covered = [
+            z.χ2(x) < threshold
+            for z, x in zip(
+                predictions[self.diagnostic_times], self.x[self.diagnostic_times]
+            )
+        ]
+        return np.mean(covered)
 
     def plot_state_trajectories(
         self,
