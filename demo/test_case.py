@@ -39,7 +39,8 @@ from tqdm import tqdm, trange
 from unscented import UnscentedTransformMethod
 
 base_path = "../docs/manuscript/generated/"
-FAST = True
+FAST = False
+IN_SIZE = 3
 
 
 class Activation(Enum):
@@ -90,9 +91,10 @@ def build_network(
     logger.info(
         f"Building network with architecture={architecture.name}, activation={activation_type.name}"
     )
+    A_factory = random_matrix.RandomGaussian(1.1)
     if activation_type in (Activation.PROBIT, Activation.PROBIT_RESIDUAL):
         layer_args = dict(
-            A=random_matrix.RandomGaussian(),
+            A=A_factory,
             b=random_matrix.RandomGaussian(),
             activation=activation_module.NormalCDF(),
         )
@@ -102,7 +104,7 @@ def build_network(
             hidden_factory = network.Layer.create_residual
     elif activation_type in (Activation.SINE, Activation.SINE_RESIDUAL):
         layer_args = dict(
-            A=random_matrix.RandomGaussian(),
+            A=A_factory,
             b=random_matrix.RandomUniform(),
             activation=activation_module.Sinusoid(),
         )
@@ -125,10 +127,10 @@ def build_network(
     # first hidden layer
     layers = [
         network.Layer.create_nonlinear(
-            in_size=1,
+            in_size=IN_SIZE,
             out_size=num_hidden_neurons,
             key=keys[0],
-            A=random_matrix.RandomGaussian(),
+            A=A_factory,
             b=layer_args["b"],
             activation=layer_args["activation"],
         )
@@ -181,8 +183,12 @@ class RandomNeuralNetwork:
         )
         if self.weights == Weights.TRAINED:
             logger.info("Training network...")
-            self.train_x, self.train_y = jax.random.normal(
-                jax.random.PRNGKey(-1), (2, 10)
+            NUM_TRAINING_SAMPLES = 10
+            self.train_x = jax.random.normal(
+                jax.random.PRNGKey(-1), (IN_SIZE, NUM_TRAINING_SAMPLES)
+            )
+            self.train_y = jax.random.normal(
+                jax.random.PRNGKey(-2), (NUM_TRAINING_SAMPLES,)
             )
             self.network = self.train_network()
             logger.info("Network training completed")
@@ -192,7 +198,7 @@ class RandomNeuralNetwork:
 
         @equinox.filter_jit
         def get_loss(model):
-            pred_x = jax.vmap(model)(self.train_x.reshape(-1, 1)).reshape(-1)
+            pred_x = jax.vmap(model)(self.train_x.reshape(-1, IN_SIZE)).reshape(-1)
             return ((pred_x - self.train_y) ** 2).mean()
 
         loss_value_and_grad = equinox.filter_value_and_grad(get_loss)
@@ -211,7 +217,7 @@ class RandomNeuralNetwork:
             pbar = trange(1_000_000 if not FAST else 1000)
             for i in pbar:
                 loss, updated_network, opt_state, done = step(self.network, opt_state)
-                if done:
+                if i >= 30000 and done:
                     logger.info(
                         f"Training converged after {i} iterations with final loss={loss:.20f}"
                     )
@@ -231,23 +237,24 @@ class RandomNeuralNetwork:
 
     def plot_function(self):
         logger.info("Plotting function")
-        x_grid = np.linspace(-2, 2, 2000)
-        y_values = jax.vmap(self.network)(x_grid.reshape(-1, 1)).reshape(-1)
+        x_grid = np.zeros((2000, IN_SIZE))
+        x_grid[:, 0] = np.linspace(-2, 2, 2000)
+        y_values = jax.vmap(self.network)(x_grid).reshape(-1)
 
         fig = Figure(dpi=300, figsize=(4, 2), constrained_layout=1)
         ax = fig.gca()
-        if (
-            self.weights == Weights.TRAINED
-            and hasattr(self, "train_x")
-            and hasattr(self, "train_y")
-        ):
-            ax.scatter(
-                self.train_x,
-                self.train_y,
-                color="C1",
-                label="training data",
-            )
-        ax.plot(x_grid, y_values, label="$y = f(x)$")
+        # if (
+        #     self.weights == Weights.TRAINED
+        #     and hasattr(self, "train_x")
+        #     and hasattr(self, "train_y")
+        # ):
+        #     ax.scatter(
+        #         self.train_x,
+        #         self.train_y,
+        #         color="C1",
+        #         label="training data",
+        #     )
+        ax.plot(x_grid[:, 0], y_values, label="$y = f(x)$")
         ax.set_xlabel("$x$")
         ax.set_ylabel("$y$")
         ax.legend()
@@ -278,12 +285,9 @@ class RandomNeuralNetworkTestCase:
 
     def __post_init__(self):
         self.dist = {
-            Variance.SMALL: normal.Normal(jnp.array([0.0]), jnp.array([[1e-4]])),
-            Variance.MEDIUM: normal.Normal(jnp.array([0.0]), jnp.array([[1e0]])),
-            Variance.LARGE: normal.Normal(
-                jnp.array([0.0]),
-                jnp.array([[1e4]]),
-            ),
+            Variance.SMALL: 1e-1 * normal.Normal.standard(IN_SIZE),
+            Variance.MEDIUM: normal.Normal.standard(IN_SIZE),
+            Variance.LARGE: 1e1 * normal.Normal.standard(IN_SIZE),
         }[self.variance]
 
         logger.info("Generating quasi-Monte Carlo samples")
@@ -293,7 +297,7 @@ class RandomNeuralNetworkTestCase:
 
         self.monte_carlo_outputs = [
             jax.vmap(self.network.network)(
-                self.monte_carlo_inputs[i].reshape(-1, 1)
+                self.monte_carlo_inputs[i].reshape(-1, IN_SIZE)
             ).reshape(-1)
             for i in range(self.num_repetitions)
         ]
@@ -333,13 +337,15 @@ class RandomNeuralNetworkTestCase:
             repetitions = np.array(
                 [statistic(samples) for samples in self.monte_carlo_outputs]
             )
-            return repetitions.mean(), repetitions.std()
+            return repetitions.mean(), repetitions.std() / np.sqrt(len(repetitions))
 
-        def format_scientific(x):
+        def format_scientific(x, implicit_plus=True):
             if x == 0:
                 return "0"
             return (
-                r"""\num[print-zero-exponent = true,print-exponent-implicit-plus=true,print-implicit-plus=true]{"""
+                r"""\num[print-zero-exponent = true,print-implicit-plus="""
+                + ("true" if implicit_plus else "false")
+                + r",print-exponent-implicit-plus=true]{"
                 + f"{x:.3e}"
                 + "}"
             )
@@ -353,8 +359,12 @@ class RandomNeuralNetworkTestCase:
                 + "}"
             )
 
-        def format_scientific_uncertainty(mean, std):
-            return format_scientific(mean) + r" \ensuremath{\pm} " + format_std(std)
+        def format_scientific_uncertainty(mean, std, implicit_plus=True):
+            return (
+                format_scientific(mean, implicit_plus=implicit_plus)
+                + r" \ensuremath{\pm} "
+                + format_std(std)
+            )
 
         DISTRIBUTION = "distribution"
         MEAN = r"\(\mu\)"
@@ -377,17 +387,20 @@ class RandomNeuralNetworkTestCase:
                 {
                     DISTRIBUTION: r"pseudo-true (\(Y_1\))",
                     MEAN: format_scientific_uncertainty(
-                        *bootstrap_mean_std(lambda samples: samples.mean())
+                        *bootstrap_mean_std(lambda samples: samples.mean()),
+                        implicit_plus=True,
                     ),
                     VARIANCE: format_scientific_uncertainty(
-                        *bootstrap_mean_std(lambda samples: samples.var())
+                        *bootstrap_mean_std(lambda samples: samples.var()),
+                        implicit_plus=False,
                     ),
                     WASSERSTEIN: format_scientific_uncertainty(
                         *bootstrap_mean_std(
                             lambda samples: wasserstein(
                                 samples, normal.Normal.from_samples(samples)
                             )
-                        )
+                        ),
+                        implicit_plus=False,
                     ),
                     KL: 0,
                 },
@@ -420,12 +433,17 @@ class RandomNeuralNetworkTestCase:
                         [
                             {
                                 DISTRIBUTION: name,
-                                MEAN: format_scientific(dist.μ.item()),
-                                VARIANCE: format_scientific(dist.Σ.item()),
+                                MEAN: format_scientific(
+                                    dist.μ.item(), implicit_plus=True
+                                ),
+                                VARIANCE: format_scientific(
+                                    dist.Σ.item(), implicit_plus=False
+                                ),
                                 WASSERSTEIN: format_scientific_uncertainty(
                                     *bootstrap_mean_std(
                                         lambda samples: wasserstein(samples, dist)
-                                    )
+                                    ),
+                                    implicit_plus=False,
                                 ),
                                 KL: format_scientific_uncertainty(
                                     *bootstrap_mean_std(
@@ -434,7 +452,8 @@ class RandomNeuralNetworkTestCase:
                                         )
                                         .kl_divergence(dist)
                                         .item()
-                                    )
+                                    ),
+                                    implicit_plus=False,
                                 ),
                             }
                         ]
@@ -551,8 +570,8 @@ class RandomNeuralNetworkTestCase:
 
 def generate_networks():
     for architecture in Architecture:
-        for weights in Weights:
-            for activation in Activation:
+        for activation in Activation:
+            for weights in Weights:
                 logger.info(
                     f"Generating network: architecture={architecture.name}, weights={weights.name}, activation={activation.name}"
                 )
@@ -564,20 +583,22 @@ if __name__ == "__main__":
         for random_network in generate_networks():
             logger.info(f"Network: {random_network}")
             f.write(r"\subsection{" + random_network.pretty_name + "}\n")
-            filename = random_network.plot_function()
-            f.write(r"\begin{figure}[H]\begin{center}" + "\n")
-            f.write(f"\\includegraphics{{generated/{filename}}}\n")
-            f.write(r"\end{center}" + "\n")
-            f.write(
-                rf"\caption{{Input-output relationship of {random_network.pretty_name}}}"
-                + "\n"
-            )
-            f.write(r"\end{figure}" + "\n")
-            f.write("\\clearpage\n")
+            # filename = random_network.plot_function()
+            # f.write(r"\begin{figure}[H]\begin{center}" + "\n")
+            # f.write(f"\\includegraphics{{generated/{filename}}}\n")
+            # f.write(r"\end{center}" + "\n")
+            # f.write(
+            #     rf"\caption{{Input-output relationship of {random_network.pretty_name}}}"
+            #     + "\n"
+            # )
+            # f.write(r"\end{figure}" + "\n")
+            # f.write("\\clearpage\n")
 
             for variance in Variance:
                 test_case = RandomNeuralNetworkTestCase(random_network, variance)
-                f.write(f"\\subsubsection*{{Variance: {variance.name}}}\n")
+                f.write(
+                    f"\\subsubsection*{{{random_network.pretty_name}, Variance: {variance.name}}}\n"
+                )
                 logger.info(f"Test case: {test_case}")
 
                 moment_filename, divergence_filename = test_case.write_table()

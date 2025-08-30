@@ -1,15 +1,20 @@
 
 \documentclass{article} % For LaTeX2e
-\usepackage{iclr2026_conference,times}
+% style file edited by AI to be more preprint
+\usepackage{iclr2026_conference_preprint,times}
 
 % Optional math commands from https://github.com/goodfeli/dlbook_notation.
 \input{math_commands.tex}
 
 \usepackage{hyperref}
 \usepackage{url}
+\usepackage{xspace}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{float}
 
 
-\title{Formatting Instructions for ICLR 2026 \\ Conference Submissions}
+\title{Prediction, Filtering, and Smoothing with Neural Network Dynamics}
 
 % Authors must not appear in the submitted version. They should be hidden
 % as long as the \iclrfinalcopy macro remains commented out below.
@@ -18,7 +23,7 @@
 \author{Antiquus S.~Hippocampus, Natalia Cerebro \& Amelie P. Amygdale \thanks{ Use footnote for providing further information
 about author (webpage, alternative address)---\emph{not} for acknowledging
 funding agencies.  Funding acknowledgements go at the end of the paper.} \\
-Department of Computer Science\\
+Department of Computer Science\\    
 Cranberry-Lemon University\\
 Pittsburgh, PA 15213, USA \\
 \texttt{\{hippo,brain,jen\}@cs.cranberry-lemon.edu} \\
@@ -46,10 +51,35 @@ Address \\
 \newcommand{\fix}{\marginpar{FIX}}
 \newcommand{\new}{\marginpar{NEW}}
 
-%\iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
+% \iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
+
+\newcommand{\neuralUQ}{{\color{red} \textbf{Neural UQ}}\xspace}
+
+\usepackage{amsmath, amsthm, amsfonts, amssymb, mathtools, commath,
+hyperref, cancel, bm}
+\usepackage{algorithm,algpseudocode, algorithmicx}
+\usepackage{doi, xcolor}
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{conjecture}{Conjecture}
+\newtheorem{theorem}{Theorem}
+\newtheorem{problem}{Problem}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\newtheorem{lemma}{Lemma}
+\newtheorem{example}{Example}
+\DeclareMathOperator{\trace}{\operatorname{tr}}
+\DeclareMathOperator{\expect}{\mathbb{E}}
+\DeclareMathOperator{\probability}{\mathbb{P}}
+% \DeclareMathOperator{\Var}{\operatorname{Var}}
+% \DeclareMathOperator{\Cov}{\operatorname{Cov}}
+
+% pseudo-true
+\DeclareMathOperator{\normal}{\mathrm N}
+% iterated approximation, very different
+\DeclareMathOperator{\Normal}{\mathrm N^*}
+
 \begin{document}
-
-
 \maketitle
 
 \begin{abstract}
@@ -60,339 +90,538 @@ line spaces precede the abstract. The abstract must be limited to one
 paragraph.
 \end{abstract}
 
-\section{Submission of conference papers to ICLR 2026}
+\section{Introduction}
+\subsection{Background}
+We begin with a syllogism.
 
-ICLR requires electronic submissions, processed by
-\url{https://openreview.net/}. See ICLR's website for more instructions.
+\textbf{Premise 1.} \emph{Neural networks are effective for modeling dynamic systems.}
+Because the laws of motion of mechanical systems are often continuous functions in configuration space, they are of course representable as neural networks.
+(This \emph{a priori} truism has stood up to experimentation 
+[\citealt{narendra_neural_1992,masri_identification_1993}].)
+But to what end?
+On one hand, neural networks can recover the laws of motion of a dynamic system from data for which no parametric form is known \citep{pillonetto_deep_2025}.
+On the other hand, neural networks can be supervised using the numerical solution of another physical model that might prove more costly to evaluate \citep{mohajerin_multistep_2019,michalowska_neural_2024}.
 
-If your paper is ultimately accepted, the statement {\tt
-  {\textbackslash}iclrfinalcopy} should be inserted to adjust the
-format to the camera ready requirements.
+\textbf{Premise 2.} \emph{Modeling dynamic systems enables prediction, filtering, and smoothing.}
+Born in the late 20th century, these now-classic problems deal with estimating the latent state of a partially observed Markov model (presented dutifully in the next section),
+for example, tracking and predicting the ballistic motion of a point mass (such as a golf ball) on the basis of noisy measurements such as radar,
+ or estimating one's own location by fusing 
+inertial sensors and satellite navigation.
+Sundry applications include human physiology forecasting \cite{albers_interpretable_2023}, pandemic surveillance \cite{alsaggaf_nonlinear_2024}, and latent macroeconomic variables \cite{burmeister_kalman_1982}.
+\citet{kalman_new_1961} and \citet{luenberger_observing_1964} stated and solved the filtering problem for linear dynamic system models.
+For nonlinear models, the playing field for how to generalize the Kalman Filter is wide and hotly contested.
+It is currently occupied by the Extended, Unscented, and countless other Kalman Filters that claim to handle nonlinearity more faithfully \citep{sarkka_bayesian_2023,jiang_new_2025}.
 
-The format for the submissions is a variant of the NeurIPS format.
-Please read carefully the instructions below, and follow them
-faithfully.
+\textbf{Conclusion.} \emph{Therefore, neural networks enable prediction, filtering, and smoothing.}
+We are not the first to make this connection.
+Existing work has embedded the neural mapping inside an general-purpose nonlinear Kalman filter such as the Extended Kalman Filter \citep{oveissi_novel_2025} or the Unscented Kalman Filter \citep{anurag_rcukf_2025}.
+(Also see \citet{bai_state_2023} for an ample bibliography.)
 
-\subsection{Style}
+\subsection{Foreground}
+We summarize this paper's contributions in a new syllogism.
 
-Papers to be submitted to ICLR 2026 must be prepared according to the
-instructions presented here.
+\textbf{Premise 1.} \emph{Neural networks are effective for propagating uncertainty in dynamic systems.}
+This paper builds on the uncertainty propagation methodology of \neuralUQ, which finds that with the right activation function, the first two moments of a Normal distribution can be propagated exactly through a single layer of a feedforward neural network, and by extension, approximately through a deep feedforward neural network.
+% % ;
+% and that this Ansatz is competitive with and sometimes outperforms other moment propagation methods.
+The experience of \citet{deisenroth_analytic_2009} suggests that accurate moment propagation is beneficial for Kalman filtering on models represented as Gaussian processes.
+This work extends that methodology to models represented as neural networks.
 
-%% Please note that we have introduced automatic line number generation
-%% into the style file for \LaTeXe. This is to help reviewers
-%% refer to specific lines of the paper when they make their comments. Please do
-%% NOT refer to these line numbers in your paper as they will be removed from the
-%% style file for the final version of accepted papers.
+\textbf{Premise 2.} \emph{Neural network uncertainty propagation enables prediction, filtering, and smoothing.}
+By recasting prediction, filtering, and smoothing as alternating Gaussian conditioning with nonlinear uncertainty propagation, one can put the various Kalman filters on a common footing \citep{sarkka_bayesian_2023,hennig_probabilistic_2022}.
+In particular, the various uncertainty propagation methods benchmarked in \neuralUQ correspond to different flavors of Kalman filtering.
 
-Authors are required to use the ICLR \LaTeX{} style files obtainable at the
-ICLR website. Please make sure you use the current files and
-not previous versions. Tweaking the style files may be grounds for rejection.
+\textbf{Conclusion.} \emph{Therefore, analytic moment propagation through neural networks enables prediction, filtering, and smoothing} of problems hitherto believed to be intractable.
+The literature exhibits a survivorship bias for nonlinear filtering and smoothing problems that are amenable to general-purpose nonlinear Kalman filters (as detailed in the Background section).
+Usually, this amounts to selecting a sampling time that is small enough that the continuous-time system behaves as a linear system with slowly-varying parameters.
+For example, the Lorenz system is filtered using a discretization time of 0.001 \citep{nosrati_chaotic_2011}, 0.005 \citep{dubois_data-driven_2020}, or 0.01 \cite{oveissi_novel_2025}.
+Our work extends the discretization time to 1, which is on the order of a full period of the chaotic attractor.
 
-\subsection{Retrieval of style files}
+We do not impeach the Extended, Unscented etc.~Kalman filters as unfit for purpose.
+% on existing problems, our method is only an incremental improvement.
+Rather, our method dramatically expands the scope of problems that can be tackled with Kalman filtering.
 
-The style files for ICLR and other conference information are available online at:
+The bottom line is that on highly nonlinear problems, our method improves upon existing Kalman filters in both accuracy and calibration.
+\begin{description}
+    \item[accuracy] We show an improvement in the point prediction and estimate of the state. Qualitatively, we observe that our estimator is able to stay synchronized with the chaotic Lorenz system.
+    \item[calibration] We demonstrate that confidence regions predicted by our method's state covariances have better coverage than existing Kalman filters.
+    That is, 95\% confidence regions for the state should contain the true state roughly 95\% of the time.
+    This enables risk-aware decision making for optimally trading between safety and performance.
+\end{description}
+
+\section{Notation}
+When \(\sigma:\mathbb R \to \mathbb R\) is a neural network activation function, \(\sigma (x)\) for \(x \in \mathbb{R}^n\) is applied elementwise.
+
+Uncertainty propagation notation follows that of \neuralUQ.
+If \(X\) is a square-integrable random vector, the notation \(\normal X\) refers to a random variable having distribution \(\mathcal N(\expect X, \Cov X)\).
+If \(f\) is a neural network, the notation \(\Normal f(X)\) is a Normal random variable in which the normality approximation is applied layer-by-layer as in the analytic propagation method of \neuralUQ.
+
+% The variance-covariance matrix of a random vector \(X\) is \(\Var X = \expect(X - \expect X)(X - \expect X)^\intercal\).
+
+% Generally, lowercase random variables \(x_t\) refer to a realization of a stochastic process.
+% State dynamics \(x_{t} = F(x_{t-1}) +
+% \eta_t\) are ``strong,'' i.e.~hold almost surely.
+
+% Generally, uppercase random variables \(X_t\) refer to probability laws.
+% Statements such as \(X_t = F(X_{t-1})\) are ``weak'' and denote propagation of uncertainty (the
+% approximation of which is a key comparison in this paper): \(X_t\)
+% is the distribution of \(F(X_{t-1})\).
+% In expressions such as \(H(X_t) + \mathcal N(0, R)\), we mean that
+% the noise term is independent of all other randomness.
+
+The comma \(,\) is a higher-order function:
+if \(x \mapsto f(x)\) and \(x \mapsto g(x)\) are functions, then \((f
+, g)\) is the function \(x \mapsto (f(x), g(x))\).
+
+The direct sum of two square matrices \(A\) and \(B\) is denoted by
+\(A \oplus B\) and refers to the block-diagonal matrix \(A \oplus B =
+  \begin{pmatrix} A & 0 \\ 0 & B
+\end{pmatrix}\).
+
+In algorithmic pseudocode, a \emph{Function} is a pure function in
+the mathematical or functional
+programming sense.
+In particular, the variable names are meaningless placeholders.
+\(f(x) = x^2\) defines the same function as \(f(y) = y^2\).
+A \emph{Procedure} is code that results ``side effects.''
+Inside a procedure, the variable names are meaningful and refer to
+the same variables used to pose an algorithmic problem.
+
+
+
+\section{Problem statement}
+A dynamic system is described by
+\begin{subequations}
+  \label{eq:dynamic-system}
+  \begin{align}
+    x_0 &\sim \mathcal{N}(\mu_0, \Sigma_0) \\
+    x_t &= F(x_{t-1}, u_t) + \eta_t, &\eta_t &\sim \mathcal{N}(0, Q)
+    & \forall t &\in \cbr{1 \ldots T}\\
+    y_t &= H(x_t, u_t) + \epsilon_t, &\epsilon_t &\sim \mathcal{N}(0,
+    R) & \forall t &\in \cbr{1 \ldots T}
+  \end{align}
+\end{subequations}
+where \(x_t \in \mathbb{R}^{n_x}\) is the state, \(u_t \in \mathbb
+R^{n_u}\) is the input, and \(y_t \in \mathbb{R}^{n_y}\) is the output.
+The random variables \(x_0\), \(\{\eta_t\}_{t=1}^T\), and
+\(\{\epsilon_t\}_{t=1}^T\) are independent.
+
+This model motivates three problems.
+\begin{problem}[Prediction]\label{problem:prediction}
+  Given \(\{u_s\}_{s=0}^{t-1}\) and \(\{y_s\}_{s=1}^{t-1}\), predict
+  \(x_t\) and \(y_t\) as a joint distribution \((\hat X_{t \mid t-1},
+  \hat Y_{t \mid t-1})\).
+\end{problem}
+
+\begin{problem}[Filtering]\label{problem:filtering}
+  Given \(\{u_s\}_{s=0}^{t}\) and \(\{y_s\}_{s=1}^t\), estimate
+  \(\hat X_{t \mid t}\).
+\end{problem}
+
+\begin{problem}[Smoothing]\label{problem:smoothing}
+  Given \(\{u_s\}_{s=0}^T\) and \(\{y_s\}_{s=1}^T\), estimate \(\hat X_{t \mid T}\).
+\end{problem}
+
+In the case that \(F\) and \(H\) are linear functions,
+the predictive and posterior distributions arising in these problems are Normal and can be computed analytically by recursion across time steps.
+However, in our case, \(F\) and \(H\) are nonlinear functions.
+We follow the approach of Assumed Density Filtering \cite{deisenroth_analytic_2009}, 
+which re-imposes Normality assumptions on nonlinearly transformed Normal variables.
+The Kalman filter Alg.~\ref{alg:kalman-filter} solves the prediction
+and filtering problems by a forward recursion, and the
+Rauch-Tung-Striebel smoother Alg.~\ref{alg:rts-smoother} solves the
+smoothing problem by a backward recursion.
+We have stylized these algorithms (cf.~\citealt[Algorithms~5.3--4, 38.1--2]{hennig_probabilistic_2022}) in order to make a common platform for the varieties of Assumed Density Filtering, which can be seen as different implementations of the ``\(\normal\)'' operator.
+
+\begin{algorithm}
+  \caption{
+    \label{alg:kalman-filter}
+    General Kalman algorithm for recursive \textbf{prediction} (problem
+    \ref{problem:prediction}) and \textbf{filtering} (problem
+  \ref{problem:filtering})}
+  \begin{algorithmic}[1]
+    \Require State transition function \(F\) and observation model \(H\)
+    \Require State covariance \(Q\) and and observation covariance \(R\)
+    \Function{Predict}{$X, u$}
+    \State
+    \(X' \gets \normal F(X, u) + \mathcal{N}(0, Q)\)
+    \Comment{Propagate \(X\) through state transition}
+    \State
+    \(((X', u), Y') \gets\normal (\text{id}, H)(X', u) +
+    \mathcal{N}(0, 0_{n_x} \oplus R)\)
+    \Comment{Propagate \(X'\) through observation model}
+    \State\Return \((X', Y')\)
+    \Comment{Joint distribution of next state and next output}
+    \EndFunction
+    \Function{Update}{$(X, Y), y$}
+    \State
+    \((X', y) \gets\) conditional distribution of \((X,Y)\)
+    given \(Y=y\)
+    \Comment{Apply Bayes' rule}
+    \State\Return \(X'\)
+    \EndFunction
+    \Procedure{Filter}{$u_1, \ldots, u_t, y_1, \ldots, y_t$}
+    \State \(\hat X_{0 \mid 0} \gets \mathcal{N}(\mu_0, \Sigma_0)\)
+    \For{$k \in \cbr{1 \ldots t}$}
+    \State \( (\hat X_{k \mid k-1}, \hat Y_{k \mid k-1})
+    \gets \textsc{Predict}(\hat X_{k-1 \mid k-1}, u_k) \)
+    \Comment{Solution to problem \ref{problem:prediction}}
+    \State \( \hat X_{k \mid k}  \gets \textsc{Update}((\hat
+    X_{k \mid k-1}, \hat Y_{k \mid k-1}), y_k) \)
+    \Comment{Solution to problem \ref{problem:filtering}}
+    \EndFor
+    \EndProcedure
+  \end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}
+  \caption{
+    \label{alg:rts-smoother}
+    General RTS algorithm for recursive \textbf{smoothing} (problem
+  \ref{problem:smoothing})}
+  \begin{algorithmic}[1]
+    \Require State transition function \(F\)
+    \Require State covariance \(Q\)
+    \Function{Predict}{$X, u$}
+    \State
+    \(((X, u), X') \gets \normal (\text{id} , F)(X, u) +
+    \mathcal{N}(0, 0 \oplus Q)\)
+    \Comment{Propagate \(X\) through state transition}
+    \State\Return \((X, X')\)
+    \Comment{Joint distribution of current state and next state}
+    \EndFunction
+    \Function{Update}{$(X, X'), X''$}
+    \State
+    \((X, X'') \gets\) conditional distribution of
+    \((X,X')\) given \(X' = X''\)
+    \Comment{Apply Bayes' rule}
+    \State\Return \(X\)
+    \EndFunction
+    \Procedure{Smooth}{$u_1, \ldots, u_T, y_1, \ldots, y_T$}
+    \State \(\{\hat X_{k|k}\}_{k=1}^T \gets
+    \textsc{Filter}(u_1, \ldots, u_T, y_1, \ldots, y_T)\)
+    \For{$k \in \cbr{T-1 \ldots 0}$}
+    \State \( (\hat X_{k|k}, \hat X_{k+1|k}) \gets
+    \textsc{Predict}(\hat X_{k \mid k}, u_{k+1}) \)
+    \State \( \hat X_{k|T} \gets \textsc{Update}((\hat
+    X_{k|k}, \hat X_{k+1|k}), \hat X_{k|T}) \)
+    \Comment{Solution to problem \ref{problem:smoothing}}
+    \EndFor
+    \EndProcedure
+  \end{algorithmic}
+\end{algorithm}
+
+\section{Neural networks}
+Our convention for neural networks follows \neuralUQ, whose definitions we repeat for convenience:
+
+\begin{definition}
+    \label{def:layer-function}
+    A layer function is a function \(g:\mathbb R^n \times \mathbb R^{m \times n} \times \mathbb R^m \times \mathbb R^{m \times n} \times \mathbb R^m \to \mathbb R^m\) defined by \(g(x; A, b, C, d) = \sigma(A x + b) + C x + d\), where \(A \in \mathbb R^{m \times n}, b \in \mathbb R^m, C \in \mathbb R^{m \times n}, d \in \mathbb R^m\) are parameters.
+\end{definition}
+
+\begin{definition}
+    \label{def:neural-network}
+    A neural network with \(\ell \) layers is the function \(f: \mathbb R^{n_x} \to \mathbb R^{n_y}\) defined by
+    \begin{align*}
+        f(x) &= f^\ell(x) \\
+        f^k(x) &= g(f^{k-1}(x); A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+        f^0(x) &= x
+    \end{align*}
+\end{definition}
+
+The four-parameter \((A, b, C, d)\) layer function is more general than customary.
+This generality allows for certain possibilities such as residual networks (\(C=I\), \(d=0\)).
+In the context of the Kalman and RTS algorithms, this generality affords an effortless Normal approximation of the joint distribution of a neural network's input and its output.
+
+\subsection{The identity-augmentation operator}
+Algorithms \ref{alg:kalman-filter} and \ref{alg:rts-smoother}
+both invoke the identity-augmentation operator \(F \mapsto F_\text{aug}=(\text{id}, F)\) to compute the covariance between \(X\) and \(F(X)\) and the covariance between \(F(X)\) and \(F(X)\).
+We construct a representation of \(F_\text{aug}\) that is itself a neural network.
+
+\begin{lemma}
+  \label{lem:augmentation}
+  Neural networks defined by Def.~\ref{def:neural-network} are closed under the input coupling:
+  if \(f_1\) and \(f_2\) are two neural networks with \(n\) inputs and \(\ell\) layers, then \((f_1, f_2)\) can also be parameterized by a neural network with \(n\) inputs and \(\ell\) layers.
+\end{lemma}
+\begin{proof}
+  For \(j \in \{1, 2\}\), let \(f_j\) be defined by
+  \begin{align}
+    f_j(x) &= f_j^\ell(x), \\
+    f_j^k(x) &= g(f_j^{k-1}(x); A_j^k, b_j^k, C_j^k, d_j^k), & k \in \cbr{1 \ldots \ell},
+    \\
+    f_j^0(x) &= x
+  \end{align}
+  Now define \(f_\text{aug} =(f_1, f_2)\) by
+  \begin{align}
+    f_\text{aug}(x) &= f_\text{aug}^\ell(x), \\
+    f_\text{aug}^k(x) &= g(f_\text{aug}^{k-1}(x); A_\text{aug}^k, b_\text{aug}^k, C_\text{aug}^k, d_\text{aug}^k), & k \in \cbr{1 \ldots \ell},
+    \\
+    f_\text{aug}^0(x) &= x
+  \end{align}
+  where
+  \begin{align}
+    A_\text{aug}^1 &= \begin{pmatrix}
+      A_1 \\ A_2 
+    \end{pmatrix}
+    &
+    b_\text{aug}^1 &= \begin{pmatrix}
+      b_1 \\ b_2
+    \end{pmatrix}
+    \\
+    C_\text{aug}^1 &= \begin{pmatrix}
+      C_1 \\ C_2
+    \end{pmatrix}
+    &
+    d_\text{aug}^1 &= \begin{pmatrix}
+      d_1 \\ d_2
+    \end{pmatrix}
+  \end{align}
+  and for \(k \in \cbr{2 \ldots \ell}\),
+  \begin{align}
+    A_\text{aug}^k &= \begin{pmatrix}
+      A_1^k & 0 \\
+      0 & A_2^k
+    \end{pmatrix}
+    &
+    b_\text{aug}^k &= \begin{pmatrix}
+      b_1^k \\ b_2^k
+    \end{pmatrix}
+    \\
+    C_\text{aug}^k &= \begin{pmatrix}
+      C_1^k & 0 \\
+      0 & C_2^k
+    \end{pmatrix}
+    &
+    d_\text{aug}^k &= \begin{pmatrix}
+      d_1^k \\ d_2^k
+    \end{pmatrix}
+  \end{align}
+\end{proof}
+
+\begin{corollary}
+  If \(f\) is a neural network with \(n\) inputs and \(\ell\) layers,
+  then \((\operatorname{id}, f)\) can be represented by a neural network with \(n\)
+  inputs and \(\ell\) layers.
+\end{corollary}
+\begin{proof}
+  In order to appeal to Lemma \ref{lem:augmentation}, we just have to represent the identity map as a neural network with \(\ell\) layers.
+  This can be done by setting \(A^k = 0\), \(b^k = 0\), \(C^k = I\) and \(d^k = 0\) for all \(k \in \cbr{1 \ldots \ell}\).
+\end{proof}
+
+\subsection{Methods for uncertainty propagation: with application to Kalman filtering}
+Let \(X\) be a multivariate Normal random variable and \(F\) a neural network following Def.~\ref{def:neural-network}.
+Uncertainty propagation refers to approximating\footnote{For a deep neural network, accurate uncertainty propagation is \(\sharp\)P-hard; see \S5, \neuralUQ.} the mean and covariance matrix of \(Y = F(X)\).
+It appears as the ``\(\normal\)'' operator in Alg.~\ref{alg:kalman-filter}, lines 2--3; and Alg.~\ref{alg:rts-smoother}, line 2.
+The material in this section draws on \S3, \neuralUQ, and we refer to that work for more details.
+
+This paper introduces the \textbf{\textsc{analytic} Kalman filter}, in which ``\(\normal\)'' is implemented using the layer-by-layer moment matching method introduced in \neuralUQ, which provides analytical expressions for the cases where \(\sigma\) is a Normal CDF function or a sinusoid.
+\begin{definition}
+    Let \(f\) be a neural network with \(\ell\) layers.
+    Given \(X \sim \mathcal N(\mu, \Sigma)\), the layer-wise Gaussian approximation of \(f(X)\), denoted \(Y_\mathrm{ana} = \Normal f(X)\), is the random variable defined by
+    \begin{align*}
+        Y_\mathrm{ana} &=  Y^\ell\\
+        Y^k &= \normal g(Y^{k-1}; A^k, b^k, C^k, d^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+        Y^0 &= X
+    \end{align*}
+\end{definition}
+
+Inspired by \citet{huber_bayesian_2020, wagner_kalman_2022,akgul_deterministic_2025}, we define the \textbf{\textsc{mean-field} analytic Kalman filter} by assuming that neurons in the same hidden layer are independent:
+\begin{align*}
+  Y_\mathrm{mfa} &=  Y^\ell\\
+  Y^k &= \mathcal N(\mu^k, \Sigma^k) & \forall k &\in \cbr{1 \ldots \ell} \\
+  \mu^k &= \expect g(Y^{k-1}; A^k, b^k, C^k, d^k)
+  \\
+  \Sigma^k_{ij} &= \begin{cases}
+    \sbr{\Cov g(Y^{k-1}; A^k, b^k, C^k, d^k)}_{ij}, & i=j
+    \\
+    0, &\text{else}
+  \end{cases}
+  \\
+  Y^0 &= X
+\end{align*}
+
+The \textbf{\textsc{extended} Kalman filter} in works such as \citet{jiang_new_2025,oveissi_novel_2025} uses a linearization of the neural network
+\citep{titensky_uncertainty_2018, nagel_kalman-bucy-informed_2022,petersen_uncertainty_2024, jungmann_analytical_2025}.
+
+The \textbf{\textsc{unscented'95} Kalman filter} introduced in \citep{julier_new_1995,julier_new_1997,julier_new_2000} is a one-parameter family of transformations that approximate the distribution of \(X\) by \(2n +1\) point masses.
+
+The \textbf{\textsc{unscented'02} Kalman filter} introduced in \citep{julier_scaled_2002,wan_unscented_2000} adds two additional hyperparameters.
+It is more commonly used today \citep{jiang_new_2025,anurag_rcukf_2025} and is the default in off-the-shelf software \citep{ljung_unscentedkalmanfilter_2025}.
+
+Each of these methods is also tested with the \textbf{\textsc{recalibrate}} variation in which the \textsc{Update} step (Alg..~\ref{alg:kalman-filter}) is replaced by the recalibrate/back-out procedure described in \citet[Alg.~1]{jiang_new_2025}, which claims that the \textsc{recalibrate} variation of nonlinear Kalman filtering confers a more conservative management of state uncertainty in the presence of strong nonlinearity.
+
+We also benchmark against the \textbf{\textsc{stationary}} state estimate, which predicts a constant \(\hat x\) for all \(t\):
+\begin{subequations}
+\begin{align}
+  \hat x_{\mathrm{stationary}} &= \mathcal N(\mu_{\mathrm{stationary}}, \Sigma_{\mathrm{stationary}})
+  \\
+  \mu_{\mathrm{stationary}} &= \frac{1}{T+1} \sum_{t = 0}^T x_t
+  \\
+  \Sigma_{\mathrm{stationary}} &= \frac{1}{T} \sum_{t = 0}^T (x_t - \mu_{\mathrm{stationary}})(x_t - \mu_{\mathrm{stationary}})^\intercal
+\end{align}
+\end{subequations}
+
+\section{On the calibration of Kalman filters}
+It is frequently asserted that the Gaussian posterior distributions arising from nonlinear Kalman filters and RTS smoothers contain a meaningful measure of uncertainty.
+That is, if, say, a Kalman filter reports \(\hat x_{t \mid t} = \mathcal N(\mu_{t \mid t}, \Sigma_{t \mid t})\), then \(\mu_{t \mid t}\) is a good point estimate of \(x_{t \mid t}\) and \(\Sigma_{t \mid t}\) is an expression of the uncertainty in \(x_{t \mid t}\).
+Simply put, a 95\% confidence set for \(x_t\) traps the true value of \(x_t\), 95\% of the time---this agreement is called \emph{calibration}.
+
+We are unaware of any literature that attempts to validate the latter claim empirically for Kalman filtering of nonlinear dynamic systems.
+The closest works are:
+\begin{itemize}
+  \item \citet{jiang_new_2025}, which claims that maintaining a sufficiently large \(\Sigma_{t \mid t}\) is needed to power the state update from \(\hat x_{t+1 \mid t}\) to \(\hat x_{t+1 \mid t+1}\), and
+  \item \citet{deisenroth_analytic_2009}, which assesses the predictive likelihood of the true state given the filtering distribution.
+  This is a step in the right direction that acknowledges that a positive matrix is not interpretable as a measure of uncertainty unless it is calibrated to the true uncertainty.
+\end{itemize}
+
+To make this notion statistically rigorous, we recall the definition of a confidence set from \citet[\S6.3.2]{wasserman_all_2004}.
+(With informal reference to the Bernstein-von Mises theorem and the Bayesian frequentist literature, we elide the technical distinctions between Bayesian and frequentist confidence sets.)
+
+\begin{definition}
+Let \(C\) be a random subset of \(\mathbb R^{n}\) and let \(\theta \in \mathbb{R}^n\).
+Then \(C\) is an \(\alpha\)-confidence set for \(\theta\) if
+\begin{align*}
+\probability\del{\theta \in C} \geq 1-\alpha.
+\end{align*}
+\end{definition}
+
+In prediction, filtering, and smoothing, \(C\) is generated at every time step \(t\) using the state estimate \(\mu\) and its covariance \(\Sigma\).
+Next, we define the notions of nominal coverage and actual coverage with reference to the true state \(x\).
+The probabilities are interpreted as ergodic averages in \(t\) over the randomness of random state rollouts \(\{x_t\}\) as well as measurement noise entering \(\{y_t\}\).
+\begin{definition}[Nominal coverage]
+Suppose that \(\hat x = \mathcal N(\mu, \Sigma)\).
+Then \(C\) has nominal coverage \(1 - \alpha\) if
+\begin{align*}
+\probability\del{\hat x \in C} \geq 1-\alpha.
+\end{align*}
+\end{definition}
+\begin{definition}[Actual coverage]
+  The set \(C\) has actual coverage \(1 - \alpha\) if
+  \begin{align*}
+    \probability\del{x \in C} \geq 1-\alpha.
+  \end{align*}
+\end{definition}
+
+In our numerical examples, we generate the sets \(C_t\) as Mahalanobis ellipsoids, e.g.~the \((1 - \alpha)\)-confidence set for filtering is given by
+\begin{align}
+  C_{t\mid t} &= \set{\hat x \in \mathbb R^{n_x} \mid (\hat x - \mu_{t\mid t})^\intercal \Sigma_{t\mid t}^{-1} (\hat x - \mu_{t\mid t}) \leq F_{\chi^2(n_x)}(1 - \alpha)}
+\end{align}
+where \(F_{\chi^2(n_x)}\) is the cumulative distribution function of the \(\chi^2\) distribution with \(n_x\) degrees of freedom.
+
+% Suppose that \(C_k \subset \mathbb R^{n_x}\) is a 
+% It has a simple definition, which we paraphrase from \citet[Chapter~6]{wasserman_all_2004}.
+
+
+
+
+\section{Example: stochastic Lorenz system}
+\label{sec:stochastic-lorenz-system}
+The Lorenz system is a reduced-order model of atmospheric convection that is often used is a benchmark in dynamical systems methdology.
+Here, we consider the problem of estimating all three states \((x^1, x^2, x^3)\) of the Lorenz system from a sequence of noisy and temporally sparse measurements of \(x^1\).
+The system of interest is the sampled stochastic Lorenz system with a deterministic initial condition.
+\begin{subequations}
+  \begin{align}
+    x_0 &=  (-8, 4, 27) 
+    \\
+    x_{t} &= F(x_{t-1}, B_t) &\forall t \in \cbr{1 \ldots T}.
+  \end{align}
+\end{subequations}
+\(B_t\) is an independent Wiener process for each \(t \in \cbr{1 \ldots T}\).
+The transition function \(F\) is given by
+\begin{align}
+  F(x, B) &= \xi(\Delta t) \\
+  \intertext{subject to}
+  \xi(0) &= x \\
+  \xi(t) &= \int_0^t f(\xi(s)) \dif s + \eta B(t) &\forall t \in [0, \Delta t]
+\end{align}
+where \(f\) is the Lorenz vector field:
+\begin{subequations}
+\label{eq:stochastic-lorenz-system}
+\begin{align}
+  f\begin{pmatrix}
+    x^1\\
+    x^2\\
+    x^3
+  \end{pmatrix}
+  &= \begin{pmatrix}
+    \sigma (x^2 - x^1)\\
+    x^1(\rho - x^3) - x^2\\
+    x^1 x^2 - \beta x^3
+  \end{pmatrix}
+\end{align}
+\end{subequations}
+where \(\sigma = 10\), \(\rho = 28\), and \(\beta = 8/3\).
+The process noise standard deviation is \(\eta = 0.001\).
+The measurement noise standard deviation is \(\epsilon = 0.1\).
+The sampling time is \(\Delta t = 1.0\).
+
+In order to learn the generative model \ref{eq:dynamic-system} from a
+training set \(\{x_t\}_{t =0}^{T_\text{train}}\),
+we learn the neural network \(F\) and process
+covariance \(Q\) simultaneously by maximizing the profile likelihood:
+\begin{align}
+\label{eq:profile-likelihood}
+  \begin{split}
+    &\min_{F, Q}
+    \quad
+    \log \det Q
+    \\
+    &\text{subject to}
+    \quad
+    \begin{matrix}
+      Q = \frac{1}{N} \sum_{t=2}^{T_\text{train}} \epsilon_t
+      \epsilon_t^\intercal\\
+      \epsilon_t = x_t - F(x_{t-1}, u_t)
+    \end{matrix}
+  \end{split}
+\end{align}
+
+The details of the implementation are given in \S\ref{sec:implementation-details}.
+\subsection{Results}
+The \textsc{analytic} method delivers a prediction RMSE of \(14.9\), which is on par with the RMSE of the \textsc{stationary} benchmark (Table~\ref{tab:results_rmse_pred_post}).
+(The abridged discussion in this section rounds to three significant digits. For the full data, see Appendix~\ref{sec:results}).
+This means that state uncertainty is so high, and the dynamics so strongly mixing, that the method's uncertainty is tantamount to that of the population of possible states.
+However, the RMSE collapses significantly to \(10.0\) after seeing the next output measurement (filtering),
+and to \(9.86\) after seeing the future output measurements (smoothing) (Table~\ref{tab:results_rmse_smooth}).
+
+Even as \textsc{analytic}'s point estimates are becoming more accurate, the 95\% confidence regions become more calibrated, shrinking from \(99.2\%\) to \(98.0\%\) (Table~\ref{tab:results_coverage95_pred_post}) to \(97.8\%\) (Table~\ref{tab:results_coverage95_smooth}) actual coverage.
+Similarly, the nominal 99\% confidence regions reduce in conservatism from \(99.9\%\) to \(99.6\%\) (Table~\ref{tab:results_coverage99_pred_post}) to \(99.4\%\) (Table~\ref{tab:results_coverage99_smooth}) actual coverage.
+
+The \textsc{analytic (recal)} method has similar RMSE to \textsc{analytic}, but more conservative confidence regions---true to the claims in \citet{jiang_new_2025} that this method results in greater (in the Loewner order) covariance matrices than the vanilla Kalman update.
+For example, at \(95\%\) nominal coverage, \textsc{analytic (recal)} delivers a confidence region with \(99.0\%\) actual coverage, an increase of \(1.24\%\) over \textsc{analytic}.
+This means that \textsc{analytic (recal)} can be desirable if conservatism is a priority for e.g.~safety applications, but in terms of the brute statistics, it is an weaker inference method.
+This is also evidenced by the fact that \textsc{analytic (recal)} has a higher average log pdf than  \textsc{analytic} (Table~\ref{tab:results_lpdf_pred_post}, Table~\ref{tab:results_lpdf_smooth}).
+
+The \textsc{mean-field} method fails to update the state at all (Table~\ref{tab:results_rmse_pred_post}, Table~\ref{tab:results_rmse_smooth}).
+This is due to the fact that state updates require cross-covariances, which are not set to zero in the mean-field method.
+Therefore, even though the mean-field approximation can be useful for certain varieties of inference with neural networks, it is not a viable approximation for Kalman filtering.
+
+The \textsc{linear} methods and all of the \textsc{unscented} methods significantly underperform \textsc{stationary} in across all three stages (prediction, filtering, smoothing) in all of the performance metrics (RMSE, coverage, log pdf).
+Some striking examples: the \textsc{linear} smoother has a RMSE of 74.6, nearly five times that of \textsc{stationary}.
+The \textsc{unscented'02 (recal)} filter has confidence regions of \(55.4\%\) actual coverage at \(99\%\) nominal coverage.
+In many cases, we were unable to report figures of merit for \textsc{unscented'02} because the results became numerically indeterminate at 64-bit floating point precision, with covariance matrices having condition numbers on the order of \(10^{14}\).
+
+\begin{figure}
 \begin{center}
-   \url{http://www.iclr.cc/}
+\includegraphics[width=\linewidth]{generated/trajectory/Method.ANALYTIC-Recalibrate.NO.pdf}
 \end{center}
-The file \verb+iclr2026_conference.pdf+ contains these
-instructions and illustrates the
-various formatting requirements your ICLR paper must satisfy.
-Submissions must be made using \LaTeX{} and the style files
-\verb+iclr2026_conference.sty+ and \verb+iclr2026_conference.bst+ (to be used with \LaTeX{}2e). The file
-\verb+iclr2026_conference.tex+ may be used as a ``shell'' for writing your paper. All you
-have to do is replace the author, title, abstract, and text of the paper with
-your own.
-
-The formatting instructions contained in these style files are summarized in
-sections \ref{gen_inst}, \ref{headings}, and \ref{others} below.
-
-\section{General formatting instructions}
-\label{gen_inst}
-
-The text must be confined within a rectangle 5.5~inches (33~picas) wide and
-9~inches (54~picas) long. The left margin is 1.5~inch (9~picas).
-Use 10~point type with a vertical spacing of 11~points. Times New Roman is the
-preferred typeface throughout. Paragraphs are separated by 1/2~line space,
-with no indentation.
-
-Paper title is 17~point, in small caps and left-aligned.
-All pages should start at 1~inch (6~picas) from the top of the page.
-
-Authors' names are
-set in boldface, and each name is placed above its corresponding
-address. The lead author's name is to be listed first, and
-the co-authors' names are set to follow. Authors sharing the
-same address can be on the same line.
-
-Please pay special attention to the instructions in section \ref{others}
-regarding figures, tables, acknowledgments, and references.
-
-
-There will be a strict upper limit of 10 pages for the main text of the initial submission, with unlimited additional pages for citations. 
-
-\section{Headings: first level}
-\label{headings}
-
-First level headings are in small caps,
-flush left and in point size 12. One line space before the first level
-heading and 1/2~line space after the first level heading.
-
-\subsection{Headings: second level}
-
-Second level headings are in small caps,
-flush left and in point size 10. One line space before the second level
-heading and 1/2~line space after the second level heading.
-
-\subsubsection{Headings: third level}
-
-Third level headings are in small caps,
-flush left and in point size 10. One line space before the third level
-heading and 1/2~line space after the third level heading.
-
-\section{Citations, figures, tables, references}
-\label{others}
-
-These instructions apply to everyone, regardless of the formatter being used.
-
-\subsection{Citations within the text}
-
-Citations within the text should be based on the \texttt{natbib} package
-and include the authors' last names and year (with the ``et~al.'' construct
-for more than two authors). When the authors or the publication are
-included in the sentence, the citation should not be in parenthesis using \verb|\citet{}| (as
-in ``See \citet{Hinton06} for more information.''). Otherwise, the citation
-should be in parenthesis using \verb|\citep{}| (as in ``Deep learning shows promise to make progress
-towards AI~\citep{Bengio+chapter2007}.'').
-
-The corresponding references are to be listed in alphabetical order of
-authors, in the \textsc{References} section. As to the format of the
-references themselves, any style is acceptable as long as it is used
-consistently.
-
-\subsection{Footnotes}
-
-Indicate footnotes with a number\footnote{Sample of the first footnote} in the
-text. Place the footnotes at the bottom of the page on which they appear.
-Precede the footnote with a horizontal rule of 2~inches
-(12~picas).\footnote{Sample of the second footnote}
-
-\subsection{Figures}
-
-All artwork must be neat, clean, and legible. Lines should be dark
-enough for purposes of reproduction; art work should not be
-hand-drawn. The figure number and caption always appear after the
-figure. Place one line space before the figure caption, and one line
-space after the figure. The figure caption is lower case (except for
-first word and proper nouns); figures are numbered consecutively.
-
-Make sure the figure caption does not get separated from the figure.
-Leave sufficient space to avoid splitting the figure and figure caption.
-
-You may use color figures.
-However, it is best for the
-figure captions and the paper body to make sense if the paper is printed
-either in black/white or in color.
-\begin{figure}[h]
-\begin{center}
-%\framebox[4.0in]{$\;$}
-\fbox{\rule[-.5cm]{0cm}{4cm} \rule[-.5cm]{4cm}{0cm}}
-\end{center}
-\caption{Sample figure caption.}
+\caption{\label{fig:analytic_trajectory}Trajectory excerpt for Kalman filter \textsc{{\textsc{analytic}}}}
 \end{figure}
 
-\subsection{Tables}
-
-All tables must be centered, neat, clean and legible. Do not use hand-drawn
-tables. The table number and title always appear before the table. See
-Table~\ref{sample-table}.
-
-Place one line space before the table title, one line space after the table
-title, and one line space after the table. The table title must be lower case
-(except for first word and proper nouns); tables are numbered consecutively.
-
-\begin{table}[t]
-\caption{Sample table title}
-\label{sample-table}
+\begin{figure}
 \begin{center}
-\begin{tabular}{ll}
-\multicolumn{1}{c}{\bf PART}  &\multicolumn{1}{c}{\bf DESCRIPTION}
-\\ \hline \\
-Dendrite         &Input terminal \\
-Axon             &Output terminal \\
-Soma             &Cell body (contains cell nucleus) \\
-\end{tabular}
+\includegraphics[width=\linewidth]{generated/trajectory/Method.LINEAR-Recalibrate.YES.pdf}
 \end{center}
-\end{table}
+\caption{\label{fig:linear_trajectory}Trajectory excerpt for Kalman filter \textsc{{\textsc{linear (recal)}}}}
+\end{figure}
 
-\section{Default Notation}
-
-In an attempt to encourage standardized notation, we have included the
-notation file from the textbook, \textit{Deep Learning}
-\cite{goodfellow2016deep} available at
-\url{https://github.com/goodfeli/dlbook_notation/}.  Use of this style
-is not required and can be disabled by commenting out
-\texttt{math\_commands.tex}.
+Viewing excerpts of the state trajectories helps to explain why the non-analytic filters perform so poorly.
+The confidence region of \textsc{analytic} envelops the true state (plus signs depict hits; crosses depict misses) at close to 90\% (nominal coverage) (Figure~\ref{fig:analytic_trajectory})
+On the other hand, the confidence region of \textsc{linear (recal)} confidently misses the state at every turn.
+The Lorenz system's chaotic mixing means that small errors tend to blow up exponentially in time, and without faithful distribution propagation, a Kalman filter or RTS smoother has no way of finding its way back to the true trajectory.
 
 
-\centerline{\bf Numbers and Arrays}
-\bgroup
-\def\arraystretch{1.5}
-\begin{tabular}{p{1in}p{3.25in}}
-$\displaystyle a$ & A scalar (integer or real)\\
-$\displaystyle \va$ & A vector\\
-$\displaystyle \mA$ & A matrix\\
-$\displaystyle \tA$ & A tensor\\
-$\displaystyle \mI_n$ & Identity matrix with $n$ rows and $n$ columns\\
-$\displaystyle \mI$ & Identity matrix with dimensionality implied by context\\
-$\displaystyle \ve^{(i)}$ & Standard basis vector $[0,\dots,0,1,0,\dots,0]$ with a 1 at position $i$\\
-$\displaystyle \text{diag}(\va)$ & A square, diagonal matrix with diagonal entries given by $\va$\\
-$\displaystyle \ra$ & A scalar random variable\\
-$\displaystyle \rva$ & A vector-valued random variable\\
-$\displaystyle \rmA$ & A matrix-valued random variable\\
-\end{tabular}
-\egroup
-\vspace{0.25cm}
-
-\centerline{\bf Sets and Graphs}
-\bgroup
-\def\arraystretch{1.5}
-
-\begin{tabular}{p{1.25in}p{3.25in}}
-$\displaystyle \sA$ & A set\\
-$\displaystyle \R$ & The set of real numbers \\
-$\displaystyle \{0, 1\}$ & The set containing 0 and 1 \\
-$\displaystyle \{0, 1, \dots, n \}$ & The set of all integers between $0$ and $n$\\
-$\displaystyle [a, b]$ & The real interval including $a$ and $b$\\
-$\displaystyle (a, b]$ & The real interval excluding $a$ but including $b$\\
-$\displaystyle \sA \backslash \sB$ & Set subtraction, i.e., the set containing the elements of $\sA$ that are not in $\sB$\\
-$\displaystyle \gG$ & A graph\\
-$\displaystyle \parents_\gG(\ervx_i)$ & The parents of $\ervx_i$ in $\gG$
-\end{tabular}
-\vspace{0.25cm}
-
-
-\centerline{\bf Indexing}
-\bgroup
-\def\arraystretch{1.5}
-
-\begin{tabular}{p{1.25in}p{3.25in}}
-$\displaystyle \eva_i$ & Element $i$ of vector $\va$, with indexing starting at 1 \\
-$\displaystyle \eva_{-i}$ & All elements of vector $\va$ except for element $i$ \\
-$\displaystyle \emA_{i,j}$ & Element $i, j$ of matrix $\mA$ \\
-$\displaystyle \mA_{i, :}$ & Row $i$ of matrix $\mA$ \\
-$\displaystyle \mA_{:, i}$ & Column $i$ of matrix $\mA$ \\
-$\displaystyle \etA_{i, j, k}$ & Element $(i, j, k)$ of a 3-D tensor $\tA$\\
-$\displaystyle \tA_{:, :, i}$ & 2-D slice of a 3-D tensor\\
-$\displaystyle \erva_i$ & Element $i$ of the random vector $\rva$ \\
-\end{tabular}
-\egroup
-\vspace{0.25cm}
-
-
-\centerline{\bf Calculus}
-\bgroup
-\def\arraystretch{1.5}
-\begin{tabular}{p{1.25in}p{3.25in}}
-% NOTE: the [2ex] on the next line adds extra height to that row of the table.
-% Without that command, the fraction on the first line is too tall and collides
-% with the fraction on the second line.
-$\displaystyle\frac{d y} {d x}$ & Derivative of $y$ with respect to $x$\\ [2ex]
-$\displaystyle \frac{\partial y} {\partial x} $ & Partial derivative of $y$ with respect to $x$ \\
-$\displaystyle \nabla_\vx y $ & Gradient of $y$ with respect to $\vx$ \\
-$\displaystyle \nabla_\mX y $ & Matrix derivatives of $y$ with respect to $\mX$ \\
-$\displaystyle \nabla_\tX y $ & Tensor containing derivatives of $y$ with respect to $\tX$ \\
-$\displaystyle \frac{\partial f}{\partial \vx} $ & Jacobian matrix $\mJ \in \R^{m\times n}$ of $f: \R^n \rightarrow \R^m$\\
-$\displaystyle \nabla_\vx^2 f(\vx)\text{ or }\mH( f)(\vx)$ & The Hessian matrix of $f$ at input point $\vx$\\
-$\displaystyle \int f(\vx) d\vx $ & Definite integral over the entire domain of $\vx$ \\
-$\displaystyle \int_\sS f(\vx) d\vx$ & Definite integral with respect to $\vx$ over the set $\sS$ \\
-\end{tabular}
-\egroup
-\vspace{0.25cm}
-
-\centerline{\bf Probability and Information Theory}
-\bgroup
-\def\arraystretch{1.5}
-\begin{tabular}{p{1.25in}p{3.25in}}
-$\displaystyle P(\ra)$ & A probability distribution over a discrete variable\\
-$\displaystyle p(\ra)$ & A probability distribution over a continuous variable, or over
-a variable whose type has not been specified\\
-$\displaystyle \ra \sim P$ & Random variable $\ra$ has distribution $P$\\% so thing on left of \sim should always be a random variable, with name beginning with \r
-$\displaystyle  \E_{\rx\sim P} [ f(x) ]\text{ or } \E f(x)$ & Expectation of $f(x)$ with respect to $P(\rx)$ \\
-$\displaystyle \Var(f(x)) $ &  Variance of $f(x)$ under $P(\rx)$ \\
-$\displaystyle \Cov(f(x),g(x)) $ & Covariance of $f(x)$ and $g(x)$ under $P(\rx)$\\
-$\displaystyle H(\rx) $ & Shannon entropy of the random variable $\rx$\\
-$\displaystyle \KL ( P \Vert Q ) $ & Kullback-Leibler divergence of P and Q \\
-$\displaystyle \mathcal{N} ( \vx ; \vmu , \mSigma)$ & Gaussian distribution %
-over $\vx$ with mean $\vmu$ and covariance $\mSigma$ \\
-\end{tabular}
-\egroup
-\vspace{0.25cm}
-
-\centerline{\bf Functions}
-\bgroup
-\def\arraystretch{1.5}
-\begin{tabular}{p{1.25in}p{3.25in}}
-$\displaystyle f: \sA \rightarrow \sB$ & The function $f$ with domain $\sA$ and range $\sB$\\
-$\displaystyle f \circ g $ & Composition of the functions $f$ and $g$ \\
-  $\displaystyle f(\vx ; \vtheta) $ & A function of $\vx$ parametrized by $\vtheta$.
-  (Sometimes we write $f(\vx)$ and omit the argument $\vtheta$ to lighten notation) \\
-$\displaystyle \log x$ & Natural logarithm of $x$ \\
-$\displaystyle \sigma(x)$ & Logistic sigmoid, $\displaystyle \frac{1} {1 + \exp(-x)}$ \\
-$\displaystyle \zeta(x)$ & Softplus, $\log(1 + \exp(x))$ \\
-$\displaystyle || \vx ||_p $ & $\normlp$ norm of $\vx$ \\
-$\displaystyle || \vx || $ & $\normltwo$ norm of $\vx$ \\
-$\displaystyle x^+$ & Positive part of $x$, i.e., $\max(0,x)$\\
-$\displaystyle \1_\mathrm{condition}$ & is 1 if the condition is true, 0 otherwise\\
-\end{tabular}
-\egroup
-\vspace{0.25cm}
-
-
-
-\section{Final instructions}
-Do not change any aspects of the formatting parameters in the style files.
-In particular, do not modify the width or length of the rectangle the text
-should fit into, and do not change font sizes (except perhaps in the
-\textsc{References} section; see below). Please note that pages should be
-numbered.
-
-\section{Preparing PostScript or PDF files}
-
-Please prepare PostScript or PDF files with paper size ``US Letter'', and
-not, for example, ``A4''. The -t
-letter option on dvips will produce US Letter files.
-
-Consider directly generating PDF files using \verb+pdflatex+
-(especially if you are a MiKTeX user).
-PDF figures must be substituted for EPS figures, however.
-
-Otherwise, please generate your PostScript and PDF files with the following commands:
-\begin{verbatim}
-dvips mypaper.dvi -t letter -Ppdf -G0 -o mypaper.ps
-ps2pdf mypaper.ps mypaper.pdf
-\end{verbatim}
-
-\subsection{Margins in LaTeX}
-
-Most of the margin problems come from figures positioned by hand using
-\verb+\special+ or other commands. We suggest using the command
-\verb+\includegraphics+
-from the graphicx package. Always specify the figure width as a multiple of
-the line width as in the example below using .eps graphics
-\begin{verbatim}
-   \usepackage[dvips]{graphicx} ...
-   \includegraphics[width=0.8\linewidth]{myfile.eps}
-\end{verbatim}
-or % Apr 2009 addition
-\begin{verbatim}
-   \usepackage[pdftex]{graphicx} ...
-   \includegraphics[width=0.8\linewidth]{myfile.pdf}
-\end{verbatim}
-for .pdf graphics.
-See section~4.4 in the graphics bundle documentation (\url{http://www.ctan.org/tex-archive/macros/latex/required/graphics/grfguide.ps})
-
-A number of width problems arise when LaTeX cannot properly hyphenate a
-line. Please give LaTeX hyphenation hints using the \verb+\-+ command.
+The full results are reported in \S\ref{sec:results} and \S\ref{sec:visualizations}.
 
 \subsubsection*{Author Contributions}
 If you'd like to, you may include  a section for author contributions as is done
@@ -403,12 +632,51 @@ Use unnumbered third level headings for the acknowledgments. All
 acknowledgments, including those to funding agencies, go at the end of the paper.
 
 
-\bibliography{iclr2026_conference}
+\bibliography{nn-filtering}
 \bibliographystyle{iclr2026_conference}
 
 \appendix
-\section{Appendix}
-You may include other additional sections here.
+\clearpage
+\tableofcontents
+\clearpage
+\section{Model, implementation details, and reporting for \S\ref{sec:stochastic-lorenz-system}}  
+\label{sec:implementation-details}
+We generated training, validation, and test data by sampling independent realizations of this process at a fixed time step \(T\) using the stochastic integrator \citet{foster_high_2023} implemented by Diffrax \citep{kidger_neural_2021} within the JAX programming system \citep{deepmind_deepmind_2020,kidger_equinox_2021,bradbury_jax_2018}.
 
+In all cases of \(T\), the training and validation datasets both had length \(N=200,000\).
+The activation function was sine, and there were residual connections between hidden layers.
+We optimized the objective \eqref{eq:profile-likelihood} using the Optax optimization library \citep{deepmind_deepmind_2020}
+with the AdamW optimizer \citep{loshchilov_decoupled_2019}.
+
+In the case \(T = 1\) the neural network had five hidden layers with 64 units each.
+The training consisted of 10,000 epochs with a minibatch size of 10,000 at a learning rate of \(10^{-4}\), followed by 10,000 epochs with a minibatch size of 10,000 at a learning rate of \(10^{-5}\).
+This took about ten hours.
+
+Generating the numerical results for \S\ref{sec:stochastic-lorenz-system} took about six hours.
+
+All computations were performed on an Ubuntu system with an Intel® Core™ i7-11850H CPU and 32GB of RAM.
+
+We report mean \(\pm\) standard error quantities based on twenty independent realizations of the test data.
+
+\clearpage
+\section{Numerical results for \S\ref{sec:stochastic-lorenz-system}}
+\label{sec:results}
+\input{generated/tables/stationary.tex}
+\input{generated/generated-tables.tex}
+
+\clearpage
+\section{Visualizations for \S\ref{sec:stochastic-lorenz-system}}
+\label{sec:visualizations}
+For each variation of nonlinear Kalman filtering, we visualize both a trajectory excerpt and a coverage plot.
+In the trajectory excerpt, we shade in green the 90\% marginal confidence regions of the trajectory prediction \(\hat x_{t \mid t-1}\), filtering estimate \(\hat x_{t \mid t}\), and smoothing estimate \(\hat x_{t \mid T}\) in the first, second, and third columns, respectively.
+The true state \(x\), when it is trapped by the confidence region (a ``hit''), is marked by a blue plus sign.
+The true state \(x\), when it is not trapped by the confidence region (a ``miss''), is marked by an orange cross sign.
+The time interval encompasses \(100\) steps from the middle of the test trajectory to minimize boundary effects.
+The properly-calibrated number of misses is therefore 10 out of 100.
+
+
+ 
+
+\input{generated/generated.tex}
 
 \end{document}

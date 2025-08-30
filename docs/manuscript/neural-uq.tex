@@ -59,7 +59,7 @@
 
 
 % Note. For the workshop paper template, both \title{} and \workshoptitle{} are required, with the former indicating the paper title shown in the title and the latter indicating the workshop title displayed in the footnote. 
-\title{Deep Neural Networks with Gaussian Input}
+\title{Neural Networks with Gaussian Input}
 
 
 % The \author macro works with any number of authors. There are two commands
@@ -133,14 +133,14 @@ hyperref, cancel, bm}
 
 % \setcitestyle{authoryear}
 \begin{document}
-
-
 \maketitle
 
 
 \begin{abstract}
     The exact mean vector and variance-covariance matrix of a single-hidden-layer neural network (with the right choice of activation function) can be computed explicitly provided that the input is Gaussian.
     An extension to deep networks is surprisingly effective.
+    We open a door by proving a conservative goodness-of-approximation bound.
+    We then close a door by proving that a strong form of this problem is NP-complete.
 \end{abstract}
 
 \section{Introduction}
@@ -199,14 +199,17 @@ Most methods including, our own, may be viewed as re-approximating each layer's 
 \textbf{Contribution.} We describe a general operator, valid for any activation function, for propagating a mean and covariance matrix through a single layer of a deep (residual) neural network, and compute \emph{exact} formulas for the probit and sine activation functions.
 No further assumptions are made.
 Numerical examples show orders-of-magnitude accuracy improvement over other simplifying assumptions.
-Further numerical examples show surprisingly effective mean and covariance propagation for deep neural networks when the single-layer formula is chained over layers, and give a modest theoretical outlook for this phenomenon.
+Further numerical examples show surprisingly effective mean and covariance propagation for deep neural networks when the single-layer formula is chained over layers and demonstrate applications of uncertainty propagation to inference on real data.
+We prove a soft guarantee on the method's accuracy in friendly conditions, as well as a hard computational complexity barrier to uncertainty propagation in general neural networks.
+
+
 
 \textbf{Related work.}
 Existing work on UQ for neural networks is classified by the assumptions imposed on the Gaussian distribution (Table~\ref{tab:covariance-assumptions}).
 When the covariance matrix is small, the delta method justifies propagation of the mean by point evaluation and covariance by linearization \cite{titensky_uncertainty_2018,nagel_kalman-bucy-informed_2022,petersen_uncertainty_2024,jungmann_analytical_2025}, formulas with a long history \citep[Chapter 187]{gauss_theory_1857} \citep{taylor_introduction_1997}.
 The Unscented Transformation, used in \citet{astudillo_propagation_2011,abdelaziz_uncertainty_2015}, is also justified by a Taylor (no relation) series argument \citep{julier_scaled_2002}.
-Some other works \citep{huber_bayesian_2020,wagner_kalman_2022,akgul_deterministic_2025} make the mean-field assumption that each layers' neurons are independent, which can be a serviceable simplification for Bayesian learning, but leads to over-approximation of the covariance matrix.
-These approximations can be made to look arbitrarily wrong by hand-constructed counterexamples (\S\ref{sec:adversariality}).
+Some other works \citep{huber_bayesian_2020,wagner_kalman_2022,akgul_deterministic_2025} make the mean-field assumption that each layers' neurons are independent.
+All of these approximations can be made to look arbitrarily wrong by hand-constructed counterexamples (\S\ref{sec:adversariality}).
 
 
 Whether (and which) moments can be propagated analytically is ultimately an affordance of the activation function, reflected in the studies shown in Table~\ref{tab:activation-functions}.
@@ -265,7 +268,7 @@ The numerical results of our method \(Y_\text{ana}\) will be compared to a mean-
 We introduce them in turn.
 
 \subsection{Our analytic method \(Y_\mathrm{ana}\)}
-Because this problem is intractable in general, our approach is to replace it with the proxy:
+% Because this problem is intractable in general, our approach is to replace it with the proxy:
 
 \begin{definition}
     Let \(f\) be a neural network with \(\ell\) layers.
@@ -418,6 +421,46 @@ the final step of a recursion
 where all of the terms can be bounded in terms of the input distribution and the network weights.
 Even though these bounds are currently too loose to be practical, they lend attribution to the sources of error in our approach; in particular, that non-normality arises as an interaction between variance and nonlinearity.
 
+\section{A no-go theorem}
+We have provided analytic expressions for Gaussian moment propagation through a single layer of a neural network with layers that look like \(f(x) = \sigma(A x + b) + C x + d\),
+and we have provided a theoretical account for why the approximation might be effective when Gaussianity is re-imposed at each layer of a neural network.
+Now we show that for certain neural networks \(F:\mathbb{R}^n \to \mathbb{R}\), computing \(\expect F(\mathcal N(0, I))\) \emph{by any method} is computationally intractable.
+
+This is different from the claim that for certain uncertainty propagation problems, an efficient deterministic formula is not known---yet.
+Rather, for certain \(F\), uncertainty propagation is \(\sharp\)P-complete.
+In the following discussion of computational complexity, we assume a computational model in which exact arithmetic can be carried out in finite time.
+% The size of a neural network problem with \(N\) neurons is \(O(N^2)\).
+
+\begin{problem}
+\label{prob:sharp-p-network}
+  Let \(F: \mathbb R^n \to \mathbb R\) be a neural network with three hidden layers and \(O(n^3)\) hidden neurons.
+  Let \(\Xi \sim \mathcal N(0, I)\).
+  Find \(\hat \mu\) such that
+  \begin{align*}
+    \left| \hat \mu - \expect F(\Xi) \right| &\leq 2^{-n - 2}.
+  \end{align*}
+\end{problem}
+
+\begin{theorem}
+  \label{thm:sharp-p-network}
+  Problem \ref{prob:sharp-p-network} is \(\sharp\)P-complete.
+\end{theorem}
+\begin{proof}
+  The idea of the proof, given in Appendix~\ref{app:sharp-p-network}, is to reduce \(\sharp\)P-complete problem to \(\sharp\)3SAT.
+  It is based on the following observation.
+  Let \(F_\text{binary}: \{0, 1\}^n \to \{0, 1\}\) be a logic circuit.
+  Then \(|F_\text{binary}^{-1}(1)| = 2^n \expect F_\text{binary}(X)\) where \(X\) is a vector of independent Bernoulli random variables.
+\end{proof}
+% \begin{problem}[\(\sharp\)3SAT]
+%   Let \(F:\{0,1\}^n \to \{0,1\}\) be a Boolean function defined in the following way:
+%   \begin{align*}
+%     F(X) &= \wedge_{i=1}^n Y^1_i \\
+%     Y^1_i &= \vee_{j=1}^m X_{ij} & \forall i &\in \cbr{1 \ldots n} \\
+%     % 
+%   \end{align*}
+% \end{problem}
+% \citet{petersen_uncertainty_2024} calls th
+% \(\sharp\)SAT
 
 \section{Adversarial examples}
 \label{sec:adversariality}
@@ -491,15 +534,16 @@ We have forgone tables of results which would show errors on the order of machin
 \caption{\label{fig:random-neural-networks-small-trained-probit-residual}Probability distributions for Network(architecture=small, weights=trained, activation=probit residual), variance=large}
 \end{figure}
 We apply our method and other benchmarks to 24 different ensembles of random neural networks with more than one hidden layer.
+They are designed to cover a range of architectures, weights, and activations, and to undermine the assumptions of layer-by-layer moment matching.
 We sample one neural network from each ensemble and evaluate the goodness of approximation of the output distribution for three input distributions.
 In each case we compare \(Y_0\), \(Y_1\), \(Y_\mathrm{ana}\), \(Y_\mathrm{mfa}\), \(Y_\mathrm{lin}\), \(Y_\mathrm{u95}\), and \(Y_\mathrm{u02}\).
 
 
 See Appendix~\ref{app:random-neural-networks} for full specifications of the 72 test cases, the Monte Carlo methodology, and the full results.
-In most cases, our method ranks in first or second place in terms of KL divergence to the true distribution.
-While Unscented'95 is competitive, it is in several cases far from the pseudo-true distribution, with a KL divergence on the order of 1, while our method usually achieves a KL divergence on the order of 0.01.
+In the majority of scenarios, Unscented'95 comes in second place and the analytic method (ours) places in first place by an order of magnitude.
+In select cases in which analytic uncertainty propagation ranks behind Unscented'95, both have a KL divergence on the order of \(10^{-2}\) from the \(Y_1\).
 
-A particularly striking example, which we reproduce here in Table~\ref{table:random-neural-networks-small-trained-probit-residual} and Fig.~\ref{fig:random-neural-networks-small-trained-probit-residual}, is the large-variance case of a small network with trained weights and a probit-residual activation function, in which the output distribution is visibly non-normal, but our method is still closest to the pseudo-true distribution by a factor of about 400 in KL divergence.
+One example, which we reproduce here in Table~\ref{table:random-neural-networks-small-trained-probit-residual} and Fig.~\ref{fig:random-neural-networks-small-trained-probit-residual}, is the large-variance case of a small network with trained weights and a probit-residual activation function, in which the output distribution is visibly non-normal, but our method is still closest to the pseudo-true distribution by a factor of about 400 in KL divergence.
 
 Many examples; such as the small-variance test case with wide architecture, trained weights, and sine activation; exhibit the underdispersion of the mean-field approximation predicted in Example~\ref{ex:mean-field}.
 It is remarkable that even in the small-variance regime when our method, linearization, and the unscented transformations are all justified by the delta method and asymptotically equivalent, our method is often still closest to the pseudo-true distribution.
@@ -1514,7 +1558,7 @@ In each case we compare the distributions of:
 This section specifies the 24 ensembles of random neural networks and the three ensembles of inputs used to produce the \(72 = 24 \times 3\) test cases that follow.
 The neural networks in this example are parameterized as in Def.~\ref{def:neural-network}.
 Let \(d_\mathrm{hidden}\) and \(w_\mathrm{hidden}\) be the depth and width of the hidden layers, respectively.
-A random neural network \(f:\mathbb{R} \to \mathbb{R}\) is specified with \(d_\mathrm{hidden} + 1\) layers.
+A random neural network \(f:\mathbb{R}^3 \to \mathbb{R}\) is specified with \(d_\mathrm{hidden} + 1\) layers.
 The output layer is linear, with weights \(C^{d_\mathrm{hidden}+1}\) and biases \(d^{d_\mathrm{hidden}+1}\).
 The first hidden layer has \(C^1 = 0_{w_\mathrm{hidden} \times 1}\), \(d^1 = 0_{w_\mathrm{hidden} \times 1}\).
 The four degrees of freedom in the test cases are:
@@ -1537,7 +1581,7 @@ The four degrees of freedom in the test cases are:
       \item \(d\) vectors are initialized to the zero vector.
     \end{itemize}
     \item if weights = trained, the following initialization as above, the neural network is trained to minimize the mean squared error loss on a pseudorandomly generated dataset of ten \((x, y)\) samples drawn from \(\mathcal N(0, 1)\).
-    Training consists of using the AdamW optimizer \citep{loshchilov_decoupled_2019} with a learning rate of \(10^{-5}\)  until the loss is less than \(10^{-8}\).
+    Training consists of using the AdamW optimizer \citep{loshchilov_decoupled_2019} with a learning rate of \(10^{-5}\) for 30,000 iterations and until the loss is less than \(10^{-8}\) (whichever is later).
     Implementation due to Optax, \citet{deepmind_deepmind_2020}
   \end{itemize}
   \item[activation function] 
@@ -1547,16 +1591,16 @@ The four degrees of freedom in the test cases are:
   \end{itemize}
   \item[variance]
   \begin{itemize}
-    \item if variance = small, then \(X \sim \mathcal N(0, 10^{-4})\)
-    \item if variance = medium, then \(X \sim \mathcal N(0, 1)\)
-    \item if variance = large, then \(X \sim \mathcal N(0, 10^4)\)
+    \item if variance = small, then \(X \sim \mathcal N(0, 10^{-2}I)\)
+    \item if variance = medium, then \(X \sim \mathcal N(0, I)\)
+    \item if variance = large, then \(X \sim \mathcal N(0, 10^2I)\)
   \end{itemize}
 \end{description}
 
 \subsection*{Simulation and reporting}
 The only source of uncertainty in our numerical results is the ``true distribution'' of \(Y_0=f(X)\).
 For this we use twenty independent realizations of \(N=2^{16}\) quasi-Monte Carlo samples \citep{virtanen_scipy_2020}.
-We report statistical uncertainty in the form of \(\text{mean} \pm \text{standard deviation}\) within the independent realizations.
+We report statistical uncertainty in the form of \(\text{mean} \pm \text{standard error}\) within the independent realizations.
 The distributional uncertainty is too small to visualize in figures, so we plot the pooled data without an uncertainty indication.
 
 The Wasserstein distance between a Normal distribution and \(Y_0\) is computed by
@@ -1570,8 +1614,10 @@ The vertical axes within a figure have the same density scale.
 The horizontal axes also have the same scale, and are scaled to include the 0.5th (99.5th) percentiles of the quasi-Monte Carlo samples of \(Y_0\), or the mean minus (plus) three standard deviations of \(Y_1\), whichever is smaller (greater).
 
 % \num[print-zero-exponent = true,print-exponent-implicit-plus=true,print-implicit-plus=true]{243 +- 0.1}
-The entire suite of 72 test cases takes (including initialization, training, quasi-Monte Carlo, and reporting) about 24 minutes
-on a laptop, with most of the time spent on training (on a Nvidia T1200 GPU).
+The entire suite of 72 test cases takes (including initialization, training, quasi-Monte Carlo, and reporting)
+ 18 minutes
+ on an Ubuntu system with a 11th Gen Intel® Core™ i7-11850H CPU and 32GB of RAM.
+% on a laptop, with most of the time spent on training (on a Nvidia T1200 GPU).
 
 \clearpage
 % \num[print-zero-exponent = true,print-exponent-implicit-plus=true,print-implicit-plus=true]{-203000000000 +- 1e-1}

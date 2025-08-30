@@ -1,8 +1,8 @@
-from enum import Enum
 import enum
 import itertools
 import os
 import sys
+from enum import Enum
 from typing import Tuple
 
 lib_path = os.path.join(os.path.curdir, "../src")
@@ -467,7 +467,7 @@ class TestCase(equinox.Module):
         self.kalman_diagnostics = kalman_diagnostics.KalmanDiagnostics(
             kalman_filter=self.kalman,
             x=self.test_x,
-            diagnostic_times=slice(100, -100),
+            diagnostic_times=slice(1000, -1000),
         )
 
         sim_horizon = len(self.test_x)
@@ -637,8 +637,195 @@ def mean_and_se(arr):
     return np.mean(arr, axis=0), np.std(arr, axis=0) / np.sqrt(len(arr))
 
 
+def get_pretty_kalman_kind(method: Method, recalibrate: Recalibrate):
+    return (
+        r"{\textsc{"
+        + {
+            Method.ANALYTIC: "analytic",
+            Method.LINEAR: "linear",
+            Method.UNSCENTED0: "unscented'95",
+            Method.UNSCENTED1: "unscented'02",
+            Method.MEAN_FIELD: "mean-field",
+        }[method]
+        + (" (recal)" if recalibrate == Recalibrate.YES else "")
+        + "}}"
+    )
+
+
+def get_pretty_inference_kind(inference_kind: InferenceKind):
+    return {
+        InferenceKind.PRED: "prediction",
+        InferenceKind.POST: "filtering",
+        InferenceKind.SMOOTH: "smoothing",
+        InferenceKind.CONST: "constant",
+    }[inference_kind]
+
+
+def format_scientific(x, implicit_plus=True):
+    if np.isnan(x) or jnp.isnan(x):
+        return "---"
+    if x == 0:
+        return "0"
+    return (
+        r"""\num[print-zero-exponent = true,print-implicit-plus="""
+        + ("true" if implicit_plus else "false")
+        + r",print-exponent-implicit-plus=true]{"
+        + f"{x:.3e}"
+        + "}"
+    )
+
+
+def format_std(x):
+    if np.isnan(x) or jnp.isnan(x):
+        return "---"
+    if x == 0:
+        return "0"
+    return (
+        r"""\num[print-zero-exponent = true,print-exponent-implicit-plus=true]{"""
+        + f"{x:.1e}"
+        + "}"
+    )
+
+
+def format_scientific_uncertainty(mean, std, implicit_plus=True):
+    return (
+        format_scientific(mean, implicit_plus=implicit_plus)
+        + r" \ensuremath{\pm} "
+        + format_std(std)
+    )
+
+
+def results_to_dataframe(performance_kind, inference_kinds):
+    """Convert results to a pandas DataFrame for a given performance kind.
+
+    Args:
+        performance_kind: The performance metric to extract (e.g., PerformanceKind.RMSE)
+
+    Returns:
+        A pandas DataFrame with (method, recalibrate) as rows and inference_kind as columns
+    """
+    import pandas as pd
+
+    # Create multi-index for rows
+    index = pd.MultiIndex.from_product(
+        [list(Method), list(Recalibrate)],
+        names=["Method", "Recalibrate"],
+    )
+
+    # Create DataFrame with pretty-printed inference kinds as columns
+    pretty_columns = [
+        get_pretty_inference_kind(inf_kind) for inf_kind in inference_kinds
+    ]
+    df = pd.DataFrame(index=index, columns=pretty_columns, dtype=object)
+
+    # Fill in the DataFrame
+    for inf_kind, pretty_col in zip(inference_kinds, pretty_columns):
+        for (method, recalibrate), (mean, se) in results[performance_kind][
+            inf_kind
+        ].items():
+            # Format using scientific notation with uncertainty
+            df.loc[(method, recalibrate), pretty_col] = format_scientific_uncertainty(
+                mean, se
+            )
+
+    return df
+
+
+def const_results_to_latex(filename):
+    """Generate a LaTeX table showing CONST inference results for all performance kinds.
+
+    Args:
+        filename: Output file path for the LaTeX table
+    """
+    import pandas as pd
+
+    # Create a list to hold all data
+    data = []
+
+    # Collect only the first method for each performance kind
+    for perf_kind in PerformanceKind:
+        # Get the first (method, recalibrate) pair and its values
+        (method, recalibrate), (mean, se) = next(
+            iter(results[perf_kind][InferenceKind.CONST].items())
+        )
+        data.append(
+            {
+                "Performance": perf_kind.value,
+                "Value": format_scientific_uncertainty(mean, se),
+            }
+        )
+
+    # Create DataFrame
+    df = pd.DataFrame(data)
+
+    # Generate LaTeX table with just Performance and Value columns
+    df.to_latex(
+        buf=filename,
+        index=False,
+        escape=False,
+        column_format="lc",
+        caption=r"Performance metrics for \textsc{stationary} inference",
+        label="tab:const_results",
+        position="htbp",
+    )
+
+
+def results_to_latex(
+    filename, performance_kind, inference_kinds, caption=None, label=None
+):
+    """Convert results to a LaTeX table for a given performance kind.
+
+    Args:
+        performance_kind: The performance metric to extract (e.g., PerformanceKind.RMSE)
+        caption: Optional caption for the table
+        label: Optional label for the table
+
+    Returns:
+        A string containing the LaTeX table
+    """
+    df = results_to_dataframe(performance_kind, inference_kinds)
+
+    # Reset index to make MultiIndex into columns
+    df = df.reset_index()
+
+    # Combine Method and Recalibrate into a single column
+    df["Method"] = df.apply(
+        lambda row: get_pretty_kalman_kind(row["Method"], row["Recalibrate"]),
+        axis=1,
+    )
+
+    # Drop the separate Recalibrate column
+    df = df.drop(columns=["Recalibrate"])
+
+    # Set column format (single column for method, rest for data)
+    column_format = "l" + "l" * (len(df.columns) - 1)
+
+    # Generate LaTeX
+    df.to_latex(
+        buf=filename,
+        index=False,
+        escape=False,
+        column_format=column_format,
+        caption=caption
+        or f"{performance_kind.value} "
+        + "("
+        + ", ".join(
+            [get_pretty_inference_kind(inf_kind) for inf_kind in inference_kinds]
+        )
+        + ")",
+        label=label
+        or f"tab:results_{performance_kind.name.lower()}_{'_'.join([inf_kind.name.lower() for inf_kind in inference_kinds])}",
+        position="htbp",
+        float_format="%.3g",
+    )
+
+
 def get_kalman_filter_types():
     kalman_filter_types = list(itertools.product(Method, Recalibrate))
+    # kalman_filter_types = [
+    #     (Method.UNSCENTED0, Recalibrate.NO),
+    #     (Method.UNSCENTED0, Recalibrate.YES),
+    # ]
     with tqdm(total=len(kalman_filter_types)) as pbar:
         for method, recalibrate in kalman_filter_types:
             pbar.set_description(f"{method}, {recalibrate}")
@@ -646,7 +833,47 @@ def get_kalman_filter_types():
             pbar.update(1)
 
 
+use_cached_results = True
+
 if __name__ == "__main__":
+    if use_cached_results:
+
+        logger.info("Loading cached results")
+        import shelve
+
+        with shelve.open("results") as shelf:
+            results = shelf["results"]
+
+        const_results_to_latex(
+            "../docs/kalman-manuscript/generated/tables/stationary.tex"
+        )
+
+        with open("../docs/kalman-manuscript/generated/generated-tables.tex", "w") as f:
+            for performance_kind in PerformanceKind:
+                rel_path_table_1 = (
+                    "generated/tables/"
+                    + performance_kind.name.lower()
+                    + "-pred-post.tex"
+                )
+                rel_path_table_2 = (
+                    "generated/tables/" + performance_kind.name.lower() + "-smooth.tex"
+                )
+                results_to_latex(
+                    "../docs/kalman-manuscript/" + rel_path_table_1,
+                    performance_kind,
+                    inference_kinds=[InferenceKind.PRED, InferenceKind.POST],
+                    label="",
+                )
+                results_to_latex(
+                    "../docs/kalman-manuscript/" + rel_path_table_2,
+                    performance_kind,
+                    inference_kinds=[InferenceKind.SMOOTH],
+                    label="",
+                )
+                print(r"\input{" + rel_path_table_1 + "}", file=f)
+                print(r"\input{" + rel_path_table_2 + "}", file=f)
+        sys.exit(0)
+
     lorenz_args = LorenzArgs(σ=1e-3, T=1.0, dt=1e-2)
     model, Q = get_model(lorenz_args, cache_model=True, cache_data=True)
     lorenz = LorenzSDE(lorenz_args)
@@ -656,71 +883,132 @@ if __name__ == "__main__":
         for performance_kind in PerformanceKind
     }
     test_datasets = make_test_data(
-        lorenz, 400, jax.random.split(jax.random.PRNGKey(10), 3)
+        lorenz, 10000, jax.random.split(jax.random.PRNGKey(10), 20)
     )
 
-    for method, recalibrate in get_kalman_filter_types():
-        test_cases = [
-            TestCase(
-                lorenz_args,
-                test_data,
-                configuration[lorenz_args]["R"],
-                {
-                    Method.ANALYTIC: dict(
-                        method="analytic",
-                        rectify=True,
-                    ),
-                    Method.LINEAR: dict(
-                        method="linear",
-                        rectify=True,
-                    ),
-                    Method.UNSCENTED0: dict(
-                        method="unscented",
-                        unscented_method=unscented.UnscentedTransformMethod.UT0_VECTOR,
-                        rectify=True,
-                    ),
-                    Method.UNSCENTED1: dict(
-                        method="unscented",
-                        unscented_method=unscented.UnscentedTransformMethod.UT1_VECTOR,
-                        rectify=True,
-                    ),
-                    Method.MEAN_FIELD: dict(
-                        method="analytic",
-                        mean_field=True,
-                        rectify=True,
-                    ),
-                }[method],
-                progress_bar=False,
-                recalibrate=True if recalibrate == Recalibrate.YES else False,
+    with open("../docs/kalman-manuscript/generated/generated.tex", "w") as f:
+        for method, recalibrate in get_kalman_filter_types():
+            test_cases = [
+                TestCase(
+                    lorenz_args,
+                    test_data,
+                    configuration[lorenz_args]["R"],
+                    {
+                        Method.ANALYTIC: dict(
+                            method="analytic",
+                            rectify=True,
+                        ),
+                        Method.LINEAR: dict(
+                            method="linear",
+                            rectify=True,
+                        ),
+                        Method.UNSCENTED0: dict(
+                            method="unscented",
+                            unscented_method=unscented.UnscentedTransformMethod.UT0_VECTOR,
+                            rectify=True,
+                        ),
+                        Method.UNSCENTED1: dict(
+                            method="unscented",
+                            unscented_method=unscented.UnscentedTransformMethod.UT1_VECTOR,
+                            rectify=True,
+                        ),
+                        Method.MEAN_FIELD: dict(
+                            method="analytic",
+                            mean_field=True,
+                            rectify=True,
+                        ),
+                    }[method],
+                    progress_bar=False,
+                    recalibrate=True if recalibrate == Recalibrate.YES else False,
+                )
+                for test_data in test_datasets
+            ]
+
+            kalman_kind_pretty_name = get_pretty_kalman_kind(method, recalibrate)
+
+            # save trajectory and coverage plots
+            file_name = f"{method}-{recalibrate}"
+            rel_path_trajectory = "generated/trajectory/" + file_name + ".pdf"
+            rel_path_coverage = "generated/coverage/" + file_name + ".pdf"
+
+            test_cases[0].plot_trajectory(
+                Figure(figsize=(8, 6), dpi=600, constrained_layout=True)
+            ).savefig("../docs/kalman-manuscript/" + rel_path_trajectory)
+            test_cases[0].plot_coverage(
+                Figure(figsize=(6, 6), dpi=600, constrained_layout=True)
+            ).savefig("../docs/kalman-manuscript/" + rel_path_coverage)
+
+            print(f"\\subsection{{Kalman Filter: {kalman_kind_pretty_name}}}", file=f)
+            print(r"\begin{figure}[H]", file=f)
+            print(r"\begin{center}", file=f)
+            print(
+                f"\\includegraphics[width=\\linewidth]{{{rel_path_trajectory}}}", file=f
             )
-            for test_data in test_datasets
-        ]
+            print(r"\end{center}", file=f)
+            print(
+                rf"\caption{{Trajectory excerpt for Kalman filter \textsc{{{kalman_kind_pretty_name}}}}}",
+                file=f,
+            )
+            print(r"\end{figure}", file=f)
 
-        file_name = f"lorenz-sde-sysid-constant-covariance-{method}-{recalibrate}"
-        test_cases[0].plot_trajectory(
-            Figure(figsize=(8, 6), dpi=600, constrained_layout=True)
-        ).savefig(
-            "../docs/kalman-manuscript/generated/" + file_name + "-trajectory.pdf"
-        )
-        test_cases[0].plot_coverage(
-            Figure(figsize=(6, 6), dpi=600, constrained_layout=True)
-        ).savefig("../docs/kalman-manuscript/generated/" + file_name + "-coverage.pdf")
+            print(r"\begin{figure}[H]", file=f)
+            print(r"\begin{center}", file=f)
+            print(
+                f"\\includegraphics[width=\\linewidth]{{{rel_path_coverage}}}", file=f
+            )
+            print(r"\end{center}", file=f)
+            print(
+                rf"\caption{{Coverage for Kalman filter \textsc{{{kalman_kind_pretty_name}}}}}",
+                file=f,
+            )
+            print(r"\end{figure}", file=f)
 
-        for performance_kind in PerformanceKind:
-            for inference_kind in InferenceKind:
-                logger.info(
-                    f"Computing {performance_kind} for {inference_kind} with {method} and {recalibrate}"
-                )
-                results[performance_kind][inference_kind][(method, recalibrate)] = (
-                    mean_and_se(
-                        test_case.get_performance(performance_kind, inference_kind)
-                        for test_case in test_cases
+            f.flush()
+            for performance_kind in PerformanceKind:
+                for inference_kind in InferenceKind:
+                    logger.info(
+                        f"Computing {performance_kind} for {inference_kind} with {method} and {recalibrate}"
                     )
-                )
+                    results[performance_kind][inference_kind][(method, recalibrate)] = (
+                        mean_and_se(
+                            test_case.get_performance(performance_kind, inference_kind)
+                            for test_case in test_cases
+                        )
+                    )
 
-    import IPython
+    logger.info("Saving results to LaTeX tables")
 
-    IPython.embed(colors="neutral")
+    with open("../docs/kalman-manuscript/generated/generated-tables.tex", "w") as f:
+        for performance_kind in PerformanceKind:
+            rel_path_table_1 = (
+                "generated/tables/" + performance_kind.name.lower() + "-pred-post.tex"
+            )
+            rel_path_table_2 = (
+                "generated/tables/" + performance_kind.name.lower() + "-smooth.tex"
+            )
+            results_to_latex(
+                "../docs/kalman-manuscript/" + rel_path_table_1,
+                performance_kind,
+                inference_kinds=[InferenceKind.PRED, InferenceKind.POST],
+                label="",
+            )
+            results_to_latex(
+                "../docs/kalman-manuscript/" + rel_path_table_2,
+                performance_kind,
+                inference_kinds=[InferenceKind.SMOOTH],
+                label="",
+            )
+            print(r"\input{" + rel_path_table_1 + "}", file=f)
+            print(r"\input{" + rel_path_table_2 + "}", file=f)
+
+    import shelve
+
+    with shelve.open("results") as shelf:
+        shelf["results"] = results
+
+    # import IPython
+
+    # IPython.embed(colors="neutral")
 
     # lorenz_args = LorenzArgs(σ=0.5, T=0.5, dt=1e-2)
     # lorenz = LorenzSDE(lorenz_args)
