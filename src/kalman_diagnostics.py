@@ -3,10 +3,11 @@ import typing
 import equinox
 import jax
 import jax.numpy as jnp
-import neural_kalman
-import normal
 import numpy as np
 import scipy.stats
+
+import neural_kalman
+import normal
 
 
 class KalmanDiagnostics(equinox.Module):
@@ -16,7 +17,7 @@ class KalmanDiagnostics(equinox.Module):
 
     def point_rmse(self, state_trajectory: typing.List[normal.Normal]):
         residuals = self._residuals(state_trajectory)
-        return np.mean([residual**2 for residual in residuals]) ** 0.5
+        return np.mean([(residual**2).sum() for residual in residuals]) ** 0.5
 
     def _residuals(self, state_trajectory):
         for z, x in zip(

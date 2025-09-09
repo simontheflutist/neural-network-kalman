@@ -1,5 +1,6 @@
 import equinox
 from jax import numpy as jnp
+
 from network import Network
 from normal import Normal
 
@@ -118,7 +119,7 @@ class NeuralKalmanFilter(equinox.Module):
         #
         # This follows Jiang et al. 2024 "A new framework for nonlinear Kalman filters"
         x_and_y_recal = self.H_aug(
-            Normal(x_updated, P_x), **self.uq_params
+            Normal(x_updated, P_x).rectify(), **self.uq_params
         ).add_covariance(self.R, at=self.OUTPUTS)
         P_x_and_y_recal = x_and_y_recal.Σ.at[self.OUTPUTS, self.OUTPUTS].add(self.R)
         S_recal = P_x_and_y_recal[self.OUTPUTS, self.OUTPUTS]
