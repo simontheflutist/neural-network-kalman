@@ -197,11 +197,10 @@ Most methods including, our own, may be viewed as re-approximating each layer's 
 \end{table}
 
 \textbf{Contribution.} We describe a general operator, valid for any activation function, for propagating a mean and covariance matrix through a single layer of a deep (residual) neural network, and compute \emph{exact} formulas for the probit and sine activation functions.
-No further assumptions are made.
+No further simplifying assumptions are made.
 Numerical examples show orders-of-magnitude accuracy improvement over other simplifying assumptions.
 Further numerical examples show surprisingly effective mean and covariance propagation for deep neural networks when the single-layer formula is chained over layers and demonstrate applications of uncertainty propagation to inference on real data.
-We prove a soft guarantee on the method's accuracy in friendly conditions, as well as a hard computational complexity barrier to uncertainty propagation in general neural networks.
-
+We prove a soft guarantee on the method's accuracy in favorable conditions, but leave open the matter of fully understanding when this method works.
 
 
 \textbf{Related work.}
@@ -421,46 +420,50 @@ the final step of a recursion
 where all of the terms can be bounded in terms of the input distribution and the network weights.
 Even though these bounds are currently too loose to be practical, they lend attribution to the sources of error in our approach; in particular, that non-normality arises as an interaction between variance and nonlinearity.
 
-\section{A no-go theorem}
-We have provided analytic expressions for Gaussian moment propagation through a single layer of a neural network with layers that look like \(f(x) = \sigma(A x + b) + C x + d\),
-and we have provided a theoretical account for why the approximation might be effective when Gaussianity is re-imposed at each layer of a neural network.
-Now we show that for certain neural networks \(F:\mathbb{R}^n \to \mathbb{R}\), computing \(\expect F(\mathcal N(0, I))\) \emph{by any method} is computationally intractable.
+We end this section by noting that even computing the mean of a fixed neural network with random input is at least \(\sharp\)P-hard in the worst cases \citet{feischl_computational_2025}.\footnote{In related work, \citet{abrahamsen_training_2021} addresses the hardness of training a neural network, and \citet{baluta_quantitative_2019} tackles verification problems.}
+For this reason, we are pessimistic that a rigorous approach to uncertainty propagation can advance the Pareto frontier of computational accuracy and efficiency.
+% , yet as the examples show, we are optimistic that realistic neural networks are readily amenable to analytic uncertainty propagation.
+% \section{A no-go theorem}
+% We have provided analytic expressions for Gaussian moment propagation through a single layer of a neural network with layers that look like \(f(x) = \sigma(A x + b) + C x + d\),
+% and we have provided a theoretical account for why the approximation might be effective when Gaussianity is re-imposed at each layer of a neural network.
+% Now we show that for certain neural networks \(F:\mathbb{R}^n \to \mathbb{R}\), computing \(\expect F(\mathcal N(0, I))\) \emph{by any method} is computationally intractable.
 
-This is different from the claim that for certain uncertainty propagation problems, an efficient deterministic formula is not known---yet.
-Rather, for certain \(F\), uncertainty propagation is \(\sharp\)P-complete.
-In the following discussion of computational complexity, we assume a computational model in which exact arithmetic can be carried out in finite time.
-% The size of a neural network problem with \(N\) neurons is \(O(N^2)\).
+% This is different from the claim that for certain uncertainty propagation problems, an efficient deterministic formula is not known---yet.
+% Rather, for certain \(F\), uncertainty propagation is \(\sharp\)P-complete.
+% In the following discussion of computational complexity, we assume a computational model in which exact arithmetic can be carried out in finite time.
+% % The size of a neural network problem with \(N\) neurons is \(O(N^2)\).
 
-\begin{problem}
-\label{prob:sharp-p-network}
-  Let \(F: \mathbb R^n \to \mathbb R\) be a neural network with three hidden layers and \(O(n^3)\) hidden neurons.
-  Let \(\Xi \sim \mathcal N(0, I)\).
-  Find \(\hat \mu\) such that
-  \begin{align*}
-    \left| \hat \mu - \expect F(\Xi) \right| &\leq 2^{-n - 2}.
-  \end{align*}
-\end{problem}
-
-\begin{theorem}
-  \label{thm:sharp-p-network}
-  Problem \ref{prob:sharp-p-network} is \(\sharp\)P-complete.
-\end{theorem}
-\begin{proof}
-  The idea of the proof, given in Appendix~\ref{app:sharp-p-network}, is to reduce \(\sharp\)P-complete problem to \(\sharp\)3SAT.
-  It is based on the following observation.
-  Let \(F_\text{binary}: \{0, 1\}^n \to \{0, 1\}\) be a logic circuit.
-  Then \(|F_\text{binary}^{-1}(1)| = 2^n \expect F_\text{binary}(X)\) where \(X\) is a vector of independent Bernoulli random variables.
-\end{proof}
-% \begin{problem}[\(\sharp\)3SAT]
-%   Let \(F:\{0,1\}^n \to \{0,1\}\) be a Boolean function defined in the following way:
+% \begin{problem}
+% \label{prob:sharp-p-network}
+%   Let \(F: \mathbb R^n \to \mathbb R\) be a neural network with three hidden layers and \(O(n^3)\) hidden neurons.
+%   Let \(\Xi \sim \mathcal N(0, I)\).
+%   Find \(\hat \mu\) such that
 %   \begin{align*}
-%     F(X) &= \wedge_{i=1}^n Y^1_i \\
-%     Y^1_i &= \vee_{j=1}^m X_{ij} & \forall i &\in \cbr{1 \ldots n} \\
-%     % 
+%     \left| \hat \mu - \expect F(\Xi) \right| &\leq 2^{-n - 2}.
 %   \end{align*}
 % \end{problem}
-% \citet{petersen_uncertainty_2024} calls th
-% \(\sharp\)SAT
+
+% \begin{theorem}
+%   \label{thm:sharp-p-network}
+%   Problem \ref{prob:sharp-p-network} is \(\sharp\)P-complete.
+% \end{theorem}
+% The idea of the proof, given in Appendix~\ref{app:sharp-p-network}, is to reduce \(\sharp\)P-complete problem to \(\sharp\)3SAT.
+% It is based on the following observation.
+% Let \(F_\text{binary}: \{0, 1\}^n \to \{0, 1\}\) be a logic circuit.
+% Then \(|F_\text{binary}^{-1}(1)| = 2^n \expect F_\text{binary}(X)\) where \(X\) is a vector of independent Bernoulli random variables.
+% \begin{proof}
+%   Suppose that \(\psi: \{0, 1\}^n \to \{0, 1\}\) is given by a 
+% \end{proof}
+% % \begin{problem}[\(\sharp\)3SAT]
+% %   Let \(F:\{0,1\}^n \to \{0,1\}\) be a Boolean function defined in the following way:
+% %   \begin{align*}
+% %     F(X) &= \wedge_{i=1}^n Y^1_i \\
+% %     Y^1_i &= \vee_{j=1}^m X_{ij} & \forall i &\in \cbr{1 \ldots n} \\
+% %     % 
+% %   \end{align*}
+% % \end{problem}
+% % \citet{petersen_uncertainty_2024} calls th
+% % \(\sharp\)SAT
 
 \section{Adversarial examples}
 \label{sec:adversariality}
@@ -487,7 +490,7 @@ Even those these instances are contrived, they shed light on the relative streng
 This intricate example suggests that for \(Y_\mathrm{ana}\) to fail, there needs to be a conspiracy between non-normality (here, \(Y^1\)) and strong nonlinearity (here, from \(Y^1\) to \(Y\)).
 It is easier to thwart the rival approximations, as the following examples show.
 On all of these, the mean and variance of \(Y_\mathrm{ana}\) are exact.
-We have forgone tables of results which would show errors on the order of machine epsilon.
+% We have forgone tables of results which would show errors on the order of machine epsilon.
 
 \begin{example}[for \(Y_\mathrm{mfa}\)]
   \label{ex:mean-field}
@@ -590,7 +593,7 @@ The missing features are filled by linear regression, leading to input uncertain
 We apply this to the UCI Taiwanese bankruptcy dataset in which \(x\) is a vector of 95 financial features of a company and \(y\) is a binary label indicating whether the company is bankrupt.
 
 It is clear that the missing data dramatically degrades the discrimination of \(\hat p\) across all uncertainty propagation methods (Fig.~\ref{fig:classification-roc-test}).
-However, the analytic uncertainty-aware prediction has better-calibrated probabilities (Table.~\ref{tab:classification-log-probability}).
+However, the analytic uncertainty-aware prediction has the best-calibrated probabilities up to sampling and numerical uncertainty in our results (Table.~\ref{tab:classification-log-probability}).
 All uncertainty propagation methods outperform ``certain'' prediction, which ignores the uncertainty in the imputation step.
 
 \begin{figure}
